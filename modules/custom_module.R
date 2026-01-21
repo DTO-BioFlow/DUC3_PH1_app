@@ -14,9 +14,10 @@ library(zoo)
 library(purrr)
 
 # -------------------------------------------------------------------------
-# Source analysis functions
+# Source analysis & validation functions
 # -------------------------------------------------------------------------
 source("modules/PH1_function.R")
+source("modules/test_PH1_data.R")  # provides check_data_PH1()
 source("modules/Supporting_scripts/PI_functions_v1.R")
 source("modules/Supporting_scripts/Supporting_functions_v2.R")
 
@@ -41,7 +42,21 @@ customUI <- function(id) {
     
     conditionalPanel(
       condition = sprintf("input['%s'] == 'upload'", ns("data_source")),
-      fileInput(ns("file"), "Upload CSV file", accept = ".csv")
+      fluidRow(
+        column(
+          10,
+          fileInput(ns("file"), "Upload CSV file", accept = ".csv")
+        ),
+        column(
+          2,
+          tags$a(
+            href = "https://github.com/DTO-BioFlow/DUC3_dataset_inventory",
+            target = "_blank",
+            title = "Dataset format and specifications",
+            icon("info-circle")
+          )
+        )
+      )
     ),
     
     conditionalPanel(
@@ -58,7 +73,6 @@ customUI <- function(id) {
     hr(),
     uiOutput(ns("lifeform_selectors_ui")),
     hr(),
-    
     uiOutput(ns("timesliders_ui")),
     hr(),
     
@@ -87,7 +101,7 @@ customServer <- function(id, reset_trigger) {
     mon_thr <- 8
     
     # ---------------------------------------------------------------------
-    # RESET FUNCTIONS (SCOPED)
+    # RESET HELPERS
     # ---------------------------------------------------------------------
     reset_after_data <- function() {
       updateSelectizeInput(session, "lifeform_1", selected = "NONE")
@@ -95,12 +109,47 @@ customServer <- function(id, reset_trigger) {
     }
     
     reset_after_lifeform <- function() {
-      # sliders + plot auto-reset via reactivity
       NULL
     }
     
     # ---------------------------------------------------------------------
-    # Load catalog once
+    # CENTRAL VALIDATION + PROCESSING
+    # ---------------------------------------------------------------------
+    validate_and_process <- function(df, source_label = "dataset") {
+      
+      res <- check_data_PH1(df)
+      
+      if (!isTRUE(res$pass)) {
+        showModal(
+          modalDialog(
+            title = "Invalid dataset",
+            paste(
+              "The selected", source_label, "does not comply with the PH1 data specification.",
+              "",
+              paste("Reason:", res$message),
+              sep = "\n"
+            ),
+            easyClose = TRUE,
+            footer = modalButton("Close")
+          )
+        )
+        return(FALSE)
+      }
+      
+      # ---- Valid data: proceed ----
+      state$df <- df
+      state$lifeform_levels <- sort(unique(df$lifeform))
+      
+      years <- as.integer(substr(df$period, 1, 4))
+      state$min_year <- min(years, na.rm = TRUE)
+      state$max_year <- max(years, na.rm = TRUE)
+      
+      reset_after_data()
+      TRUE
+    }
+    
+    # ---------------------------------------------------------------------
+    # Load catalog (once)
     # ---------------------------------------------------------------------
     observeEvent(input$data_source, {
       
@@ -108,7 +157,7 @@ customServer <- function(id, reset_trigger) {
       
       if (input$data_source == "catalog" && !state$catalog_loaded) {
         url <- "https://raw.githubusercontent.com/DTO-BioFlow/DUC3_dataset_inventory/refs/heads/main/data_catalog/data_catalog_PH1.json"
-        state$datasets <- fromJSON(url, simplifyDataFrame = FALSE)
+        state$datasets <- fromJSON(url, simplifyVector = FALSE)
         state$catalog_loaded <- TRUE
         
         updateSelectizeInput(
@@ -127,7 +176,7 @@ customServer <- function(id, reset_trigger) {
     }, ignoreInit = TRUE)
     
     # ---------------------------------------------------------------------
-    # Dataset info
+    # Dataset info panel
     # ---------------------------------------------------------------------
     output$dataset_info <- renderUI({
       req(input$dataset_id != "NONE", state$datasets)
@@ -148,24 +197,33 @@ customServer <- function(id, reset_trigger) {
     })
     
     # ---------------------------------------------------------------------
-    # Process CSV (UPLOAD OR CATALOG)
+    # UPLOAD CSV
     # ---------------------------------------------------------------------
-    process_df <- function(df) {
-      state$df <- df
-      state$lifeform_levels <- sort(unique(df$lifeform))
-      
-      years <- as.integer(substr(df$period, 1, 4))
-      state$min_year <- min(years, na.rm = TRUE)
-      state$max_year <- max(years, na.rm = TRUE)
-      
-      reset_after_data()
-    }
-    
     observeEvent(input$file, {
       req(input$data_source == "upload", input$file)
-      process_df(read_csv(input$file$datapath, show_col_types = FALSE))
+      
+      df <- tryCatch(
+        read_csv(input$file$datapath, show_col_types = FALSE),
+        error = function(e) NULL
+      )
+      
+      if (is.null(df)) {
+        showModal(
+          modalDialog(
+            title = "File read error",
+            "The uploaded file could not be read as a valid CSV.",
+            easyClose = TRUE
+          )
+        )
+        return()
+      }
+      
+      validate_and_process(df, source_label = "uploaded file")
     })
     
+    # ---------------------------------------------------------------------
+    # CATALOG CSV
+    # ---------------------------------------------------------------------
     observeEvent(input$dataset_id, {
       req(input$data_source == "catalog", input$dataset_id != "NONE")
       
@@ -174,11 +232,14 @@ customServer <- function(id, reset_trigger) {
       
       tmp <- tempfile(fileext = ".csv")
       download.file(state$datasets[[idx]]$sources$data_store, tmp, quiet = TRUE)
-      process_df(read_csv(tmp, show_col_types = FALSE))
+      
+      df <- read_csv(tmp, show_col_types = FALSE)
+      validate_and_process(df, source_label = "catalog dataset")
+      
     }, ignoreInit = TRUE)
     
     # ---------------------------------------------------------------------
-    # Lifeform selectors (NOW APPEAR CORRECTLY)
+    # Lifeform selectors
     # ---------------------------------------------------------------------
     output$lifeform_selectors_ui <- renderUI({
       req(state$lifeform_levels)
@@ -203,7 +264,7 @@ customServer <- function(id, reset_trigger) {
     observeEvent(input$lifeform_2, reset_after_lifeform(), ignoreInit = TRUE)
     
     # ---------------------------------------------------------------------
-    # Time sliders (DEPEND ON LIFEFORMS)
+    # Time sliders
     # ---------------------------------------------------------------------
     output$timesliders_ui <- renderUI({
       req(input$lifeform_1 != "NONE", input$lifeform_2 != "NONE")
@@ -211,17 +272,29 @@ customServer <- function(id, reset_trigger) {
       mid <- floor((state$min_year + state$max_year) / 2)
       
       tagList(
-        sliderInput(session$ns("time_slider_1"), "Reference Period",
-                    min = state$min_year, max = state$max_year,
-                    value = c(state$min_year, mid), step=1, sep=""),
-        sliderInput(session$ns("time_slider_2"), "Comparison Period",
-                    min = state$min_year, max = state$max_year,
-                    value = c(mid, state$max_year), step=1, sep="")
+        sliderInput(
+          session$ns("time_slider_1"),
+          "Reference Period",
+          min = state$min_year,
+          max = state$max_year,
+          value = c(state$min_year, mid),
+          step = 1,
+          sep = ""
+        ),
+        sliderInput(
+          session$ns("time_slider_2"),
+          "Comparison Period",
+          min = state$min_year,
+          max = state$max_year,
+          value = c(mid, state$max_year),
+          step = 1,
+          sep = ""
+        )
       )
     })
     
     # ---------------------------------------------------------------------
-    # ANALYSIS (AUTO INVALIDATED & RERUN)
+    # ANALYSIS
     # ---------------------------------------------------------------------
     analysis_data <- reactive({
       req(
@@ -233,7 +306,8 @@ customServer <- function(id, reset_trigger) {
       )
       
       run_ph1_analysis(
-        df = state$df %>% filter(lifeform %in% c(input$lifeform_1, input$lifeform_2)),
+        df = state$df %>% 
+          filter(lifeform %in% c(input$lifeform_1, input$lifeform_2)),
         ref_years = input$time_slider_1,
         comp_years = input$time_slider_2,
         mon_thr = mon_thr
@@ -245,11 +319,15 @@ customServer <- function(id, reset_trigger) {
       print(analysis_data()$env_plots[[1]])
     })
     
+    # ---------------------------------------------------------------------
+    # DOWNLOAD
+    # ---------------------------------------------------------------------
     output$download_results <- downloadHandler(
       filename = function() "PH1_results.xlsx",
       content = function(file) {
         openxlsx::write.xlsx(analysis_data()$datasets, file)
       }
     )
+    
   })
 }
