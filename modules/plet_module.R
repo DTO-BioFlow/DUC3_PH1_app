@@ -3,7 +3,12 @@ library(leaflet)
 library(sf)
 library(shinycssloaders)
 library(fs)
+library(arrow)
+library(dplyr)
 
+# ------------------------
+# UI
+# ------------------------
 pletUI <- function(id) {
   ns <- NS(id)
   fluidPage(
@@ -13,17 +18,28 @@ pletUI <- function(id) {
         h4("OSPAR Common Procedure Assessment Units"),
         leafletOutput(ns("map"), height = "500px") %>% withSpinner(),
         br(),
-        verbatimTextOutput(ns("selected_info"))
+        verbatimTextOutput(ns("selected_info")),
+        br(),
+        uiOutput(ns("dataset_selector")), # dynamic dataset_name dropdown
+        tableOutput(ns("filtered_table")) %>% withSpinner()
       )
     )
   )
 }
 
+# ------------------------
+# Server
+# ------------------------
 pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
-    rv <- reactiveValues(features = NULL, selected_ID = NULL)
+    rv <- reactiveValues(
+      features = NULL,
+      selected_ID = NULL,
+      assessment = NULL,
+      dataset_choices = NULL
+    )
     
     # ------------------------
     # Load WFS with disk cache
@@ -44,6 +60,19 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
         })
         if (!is.null(rv$features)) saveRDS(rv$features, cache_file)
       }
+    })
+    
+    # ------------------------
+    # Connect to MinIO and read Parquet
+    # ------------------------
+    observe({
+      fs <- S3FileSystem$create(
+        anonymous = TRUE,
+        scheme = "https",
+        endpoint_override = "minio.dive.edito.eu"
+      )
+      parquet_path <- "oidc-willemboone/PLET/assessment_data.parquet"
+      rv$assessment <- read_parquet(fs$path(parquet_path))
     })
     
     # ------------------------
@@ -69,6 +98,7 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
       req(click$id)
       rv$selected_ID <- click$id
       
+      # Update map colors
       leafletProxy("map", session) %>%
         clearShapes() %>%
         addPolygons(
@@ -80,6 +110,29 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
           highlightOptions = highlightOptions(color = "orange", weight = 3, bringToFront = TRUE),
           label = ~paste0("ID: ", ID)
         )
+      
+      # ------------------------
+      # Update dataset_name choices
+      # ------------------------
+      req(rv$assessment)
+      filtered_region <- rv$assessment %>%
+        filter(region_id == rv$selected_ID)
+      
+      datasets <- unique(filtered_region$dataset_name)
+      rv$dataset_choices <- c("All", datasets)
+    })
+    
+    # ------------------------
+    # Render dataset_name selector
+    # ------------------------
+    output$dataset_selector <- renderUI({
+      req(rv$dataset_choices)
+      selectInput(
+        ns("dataset_name_filter"),
+        "Select dataset_name:",
+        choices = rv$dataset_choices,
+        selected = "All"
+      )
     })
     
     # ------------------------
@@ -95,11 +148,29 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     })
     
     # ------------------------
+    # Filter Parquet data based on region and dataset_name
+    # ------------------------
+    output$filtered_table <- renderTable({
+      req(rv$assessment, rv$selected_ID, input$dataset_name_filter)
+      
+      filtered <- rv$assessment %>%
+        filter(region_id == rv$selected_ID)
+      
+      if (input$dataset_name_filter != "All") {
+        filtered <- filtered %>%
+          filter(dataset_name == input$dataset_name_filter)
+      }
+      
+      head(filtered, 10)
+    })
+    
+    # ------------------------
     # Reset on tab switch
     # ------------------------
     if (!is.null(reset_trigger)) {
       observeEvent(reset_trigger(), {
         rv$selected_ID <- NULL
+        rv$dataset_choices <- NULL
         if (!is.null(rv$features)) {
           leafletProxy("map", session) %>%
             clearShapes() %>%
