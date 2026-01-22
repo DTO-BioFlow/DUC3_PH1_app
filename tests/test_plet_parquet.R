@@ -19,7 +19,8 @@ assessment <- read_parquet(
 
 # 4. Filter with dplyr
 my_selection <- assessment |> 
-  filter(region_id == 'SNS') |> 
+  filter(region_id == 'SNS',
+         dataset_name == 'BE_Flanders_Marine_Institute_VLIZ_LW_VLIZ_phyto') |> 
   collect()  # collect() works if assessment is a Dataset, for Arrow Table it's already in memory, so collect() is optional
 
 # 5. Inspect the result
