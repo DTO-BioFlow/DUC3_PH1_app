@@ -5,10 +5,12 @@ library(shinycssloaders)
 library(fs)
 library(arrow)
 library(dplyr)
+library(tidyr)
 
-# ------------------------
-# UI
-# ------------------------
+log_msg <- function(msg) {
+  cat(sprintf("[%s] %s\n", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), msg))
+}
+
 pletUI <- function(id) {
   ns <- NS(id)
   fluidPage(
@@ -20,16 +22,19 @@ pletUI <- function(id) {
         br(),
         verbatimTextOutput(ns("selected_info")),
         br(),
-        uiOutput(ns("dataset_selector")), # dynamic dataset_name dropdown
-        tableOutput(ns("filtered_table")) %>% withSpinner()
+        uiOutput(ns("dataset_selector")),
+        br(),
+        uiOutput(ns("lifeform1_selector")),
+        textOutput(ns("lifeform1_value")),
+        uiOutput(ns("lifeform2_selector")),
+        textOutput(ns("lifeform2_value")),
+        br(),
+        tableOutput(ns("lifeform_table")) %>% withSpinner()
       )
     )
   )
 }
 
-# ------------------------
-# Server
-# ------------------------
 pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
@@ -38,41 +43,39 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
       features = NULL,
       selected_ID = NULL,
       assessment = NULL,
-      dataset_choices = NULL
+      dataset_choices = NULL,
+      lifeforms = c("uto_and_mix_dinos","carniv_zoo","ciliates","copepods",
+                    "crustacean","diatom","dinoflagellate","fish_larvae",
+                    "gelatinous","holoplankton","lg_copepods","lg_phyto",
+                    "meroplankton","non_carniv_zoo","pelagic_diatoms",
+                    "phytoplankton","potentially_toxic_nuisance_diatoms",
+                    "potentially_toxic_nuisance_dinos","sm_copepods",
+                    "sm_phyto","tychopelagic_diatoms")
     )
     
     # ------------------------
-    # Load WFS with disk cache
+    # Load WFS
     # ------------------------
     cache_file <- "cache/ospar_features.rds"
     if (!dir.exists("cache")) dir.create("cache")
-    
     observe({
       req(wfs_url)
       if (file.exists(cache_file)) {
         rv$features <- readRDS(cache_file)
       } else {
-        rv$features <- tryCatch({
-          sf::st_read(wfs_url, quiet = TRUE)
-        }, error = function(e) {
-          message("Failed to load WFS:", e)
-          NULL
-        })
+        rv$features <- tryCatch({ sf::st_read(wfs_url, quiet = TRUE) }, error = function(e) { log_msg(paste("Failed WFS:", e)); NULL })
         if (!is.null(rv$features)) saveRDS(rv$features, cache_file)
       }
     })
     
     # ------------------------
-    # Connect to MinIO and read Parquet
+    # Load Parquet
     # ------------------------
     observe({
-      fs <- S3FileSystem$create(
-        anonymous = TRUE,
-        scheme = "https",
-        endpoint_override = "minio.dive.edito.eu"
-      )
+      fs <- S3FileSystem$create(anonymous = TRUE, scheme = "https", endpoint_override = "minio.dive.edito.eu")
       parquet_path <- "oidc-willemboone/PLET/assessment_data.parquet"
       rv$assessment <- read_parquet(fs$path(parquet_path))
+      log_msg("Assessment data loaded")
     })
     
     # ------------------------
@@ -82,12 +85,9 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
       req(rv$features)
       leaflet(rv$features) %>%
         addProviderTiles("CartoDB.Positron") %>%
-        addPolygons(
-          layerId = ~as.character(ID),
-          color = "blue", weight = 2, fillOpacity = 0.25,
-          highlightOptions = highlightOptions(color = "orange", weight = 3, bringToFront = TRUE),
-          label = ~paste0("ID: ", ID)
-        )
+        addPolygons(layerId = ~as.character(ID), color = "blue", weight = 2, fillOpacity = 0.25,
+                    highlightOptions = highlightOptions(color="orange", weight=3, bringToFront=TRUE),
+                    label = ~paste0("ID: ", ID))
     })
     
     # ------------------------
@@ -97,46 +97,51 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
       click <- input$map_shape_click
       req(click$id)
       rv$selected_ID <- click$id
+      log_msg(paste("Polygon clicked:", click$id))
       
       # Update map colors
       leafletProxy("map", session) %>%
         clearShapes() %>%
-        addPolygons(
-          data = rv$features,
-          layerId = ~as.character(ID),
-          color = ~ifelse(ID == rv$selected_ID, "red", "blue"),
-          weight = 2,
-          fillOpacity = ~ifelse(ID == rv$selected_ID, 0.5, 0.25),
-          highlightOptions = highlightOptions(color = "orange", weight = 3, bringToFront = TRUE),
-          label = ~paste0("ID: ", ID)
-        )
+        addPolygons(data=rv$features, layerId=~as.character(ID),
+                    color = ~ifelse(ID==rv$selected_ID,"red","blue"),
+                    weight=2, fillOpacity = ~ifelse(ID==rv$selected_ID,0.5,0.25),
+                    highlightOptions=highlightOptions(color="orange", weight=3, bringToFront=TRUE),
+                    label=~paste0("ID: ",ID))
       
-      # ------------------------
-      # Update dataset_name choices
-      # ------------------------
+      # Update dataset choices
       req(rv$assessment)
-      filtered_region <- rv$assessment %>%
-        filter(region_id == rv$selected_ID)
-      
-      datasets <- unique(filtered_region$dataset_name)
-      rv$dataset_choices <- c("All", datasets)
+      filtered_region <- rv$assessment %>% filter(region_id == rv$selected_ID)
+      rv$dataset_choices <- c("All", unique(filtered_region$dataset_name))
+      log_msg(paste("Dataset choices updated:", paste(rv$dataset_choices, collapse=", ")))
     })
     
     # ------------------------
-    # Render dataset_name selector
+    # Dataset selector
     # ------------------------
     output$dataset_selector <- renderUI({
       req(rv$dataset_choices)
-      selectInput(
-        ns("dataset_name_filter"),
-        "Select dataset_name:",
-        choices = rv$dataset_choices,
-        selected = "All"
-      )
+      selectInput(ns("dataset_name_filter"), "Select dataset_name:", choices = rv$dataset_choices, selected = "All")
     })
     
     # ------------------------
-    # Show selected polygon info
+    # Lifeform selectors
+    # ------------------------
+    output$lifeform1_selector <- renderUI({
+      req(rv$selected_ID)
+      current <- ifelse(!is.null(input$lifeform1_filter), input$lifeform1_filter, "None")
+      choices <- c("None", setdiff(rv$lifeforms, input$lifeform2_filter))
+      selectInput(ns("lifeform1_filter"), "Select Lifeform 1:", choices = choices, selected = current)
+    })
+    
+    output$lifeform2_selector <- renderUI({
+      req(rv$selected_ID)
+      current <- ifelse(!is.null(input$lifeform2_filter), input$lifeform2_filter, "None")
+      choices <- c("None", setdiff(rv$lifeforms, input$lifeform1_filter))
+      selectInput(ns("lifeform2_filter"), "Select Lifeform 2:", choices = choices, selected = current)
+    })
+    
+    # ------------------------
+    # Show polygon info
     # ------------------------
     output$selected_info <- renderPrint({
       req(rv$selected_ID)
@@ -148,41 +153,60 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     })
     
     # ------------------------
-    # Filter Parquet data based on region and dataset_name
+    # Lifeform debug prints
     # ------------------------
-    output$filtered_table <- renderTable({
+    output$lifeform1_value <- renderText({ paste("Lifeform 1 selected:", input$lifeform1_filter) })
+    output$lifeform2_value <- renderText({ paste("Lifeform 2 selected:", input$lifeform2_filter) })
+    
+    # ------------------------
+    # Conversion function
+    # ------------------------
+    convert_lifeform_df <- function(df, lf1, lf2) {
+      df %>% mutate(period=as.character(period)) %>%
+        filter(grepl("^\\d{4}-\\d{2}$", period)) %>%
+        select(period, numSamples, all_of(c(lf1, lf2))) %>%
+        pivot_longer(cols = all_of(c(lf1, lf2)), names_to="lifeform", values_to="abundance") %>%
+        rename(num_samples=numSamples) %>%
+        complete(period, lifeform=c(lf1, lf2), fill=list(abundance=NA, num_samples=NA)) %>%
+        arrange(period, lifeform)
+    }
+    
+    # ------------------------
+    # Lifeform table (run only when both selected)
+    # ------------------------
+    output$lifeform_table <- renderTable({
       req(rv$assessment, rv$selected_ID, input$dataset_name_filter)
-      
-      filtered <- rv$assessment %>%
-        filter(region_id == rv$selected_ID)
-      
-      if (input$dataset_name_filter != "All") {
-        filtered <- filtered %>%
-          filter(dataset_name == input$dataset_name_filter)
+      lf1 <- input$lifeform1_filter
+      lf2 <- input$lifeform2_filter
+      if (is.null(lf1) || is.null(lf2) || lf1=="None" || lf2=="None") {
+        log_msg("Waiting for both lifeforms to be selected...")
+        return(NULL)
       }
+      log_msg(paste("Running convert_lifeform_df with", lf1, lf2))
       
-      head(filtered, 10)
+      df_filtered <- rv$assessment %>% filter(region_id==rv$selected_ID)
+      if (input$dataset_name_filter != "All") df_filtered <- df_filtered %>% filter(dataset_name==input$dataset_name_filter)
+      
+      convert_lifeform_df(df_filtered, lf1, lf2)
     })
     
     # ------------------------
-    # Reset on tab switch
+    # Reset trigger
     # ------------------------
     if (!is.null(reset_trigger)) {
       observeEvent(reset_trigger(), {
         rv$selected_ID <- NULL
         rv$dataset_choices <- NULL
+        log_msg("Reset triggered")
         if (!is.null(rv$features)) {
-          leafletProxy("map", session) %>%
-            clearShapes() %>%
-            addPolygons(
-              data = rv$features,
-              layerId = ~as.character(ID),
-              color = "blue", weight = 2, fillOpacity = 0.25,
-              highlightOptions = highlightOptions(color = "orange", weight = 3, bringToFront = TRUE),
-              label = ~paste0("ID: ", ID)
-            )
+          leafletProxy("map", session) %>% clearShapes() %>%
+            addPolygons(data=rv$features, layerId=~as.character(ID),
+                        color="blue", weight=2, fillOpacity=0.25,
+                        highlightOptions=highlightOptions(color="orange", weight=3, bringToFront=TRUE),
+                        label=~paste0("ID: ",ID))
         }
       })
     }
+    
   })
 }
