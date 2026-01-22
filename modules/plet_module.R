@@ -159,20 +159,30 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     output$lifeform2_value <- renderText({ paste("Lifeform 2 selected:", input$lifeform2_filter) })
     
     # ------------------------
-    # Conversion function
+    # Convert and collapse duplicates
     # ------------------------
     convert_lifeform_df <- function(df, lf1, lf2) {
-      df %>% mutate(period=as.character(period)) %>%
+      df <- df %>%
+        mutate(period = as.character(period)) %>%
         filter(grepl("^\\d{4}-\\d{2}$", period)) %>%
         select(period, numSamples, all_of(c(lf1, lf2))) %>%
         pivot_longer(cols = all_of(c(lf1, lf2)), names_to="lifeform", values_to="abundance") %>%
-        rename(num_samples=numSamples) %>%
-        complete(period, lifeform=c(lf1, lf2), fill=list(abundance=NA, num_samples=NA)) %>%
+        rename(num_samples = numSamples) %>%
+        filter(!is.na(abundance) & num_samples > 0)
+      
+      # Weighted average if duplicate period + lifeform
+      df %>%
+        group_by(period, lifeform) %>%
+        summarise(
+          abundance = sum(abundance * num_samples) / sum(num_samples),
+          num_samples = sum(num_samples),
+          .groups = "drop"
+        ) %>%
         arrange(period, lifeform)
     }
     
     # ------------------------
-    # Lifeform table (run only when both selected)
+    # Lifeform table
     # ------------------------
     output$lifeform_table <- renderTable({
       req(rv$assessment, rv$selected_ID, input$dataset_name_filter)
@@ -182,10 +192,12 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
         log_msg("Waiting for both lifeforms to be selected...")
         return(NULL)
       }
-      log_msg(paste("Running convert_lifeform_df with", lf1, lf2))
       
-      df_filtered <- rv$assessment %>% filter(region_id==rv$selected_ID)
-      if (input$dataset_name_filter != "All") df_filtered <- df_filtered %>% filter(dataset_name==input$dataset_name_filter)
+      log_msg(paste("Generating lifeform table for", lf1, lf2))
+      df_filtered <- rv$assessment %>% filter(region_id == rv$selected_ID)
+      if (input$dataset_name_filter != "All") {
+        df_filtered <- df_filtered %>% filter(dataset_name == input$dataset_name_filter)
+      }
       
       convert_lifeform_df(df_filtered, lf1, lf2)
     })

@@ -7,6 +7,8 @@ df <- read.csv(
   "https://raw.githubusercontent.com/DTO-BioFlow/DUC3_dataset_inventory/refs/heads/main/data_sets/EDITO_dasid_4687_SCHPM1_holo_mero.csv"
 )
 
+print(df)
+
 results <- run_ph1_analysis(
   df = df,
   ref_years  = c(2015, 2018),
