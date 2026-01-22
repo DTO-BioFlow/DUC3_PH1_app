@@ -7,6 +7,9 @@ library(arrow)
 library(dplyr)
 library(tidyr)
 
+# Source PH1 analysis functions
+source("modules/PH1_function.R")
+
 log_msg <- function(msg) {
   cat(sprintf("[%s] %s\n", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), msg))
 }
@@ -29,7 +32,11 @@ pletUI <- function(id) {
         uiOutput(ns("lifeform2_selector")),
         textOutput(ns("lifeform2_value")),
         br(),
-        tableOutput(ns("lifeform_table")) %>% withSpinner()
+        tableOutput(ns("lifeform_table")) %>% withSpinner(),
+        br(),
+        uiOutput(ns("timesliders_ui")),
+        br(),
+        plotOutput(ns("analysis_plot"))
       )
     )
   )
@@ -50,8 +57,12 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
                     "meroplankton","non_carniv_zoo","pelagic_diatoms",
                     "phytoplankton","potentially_toxic_nuisance_diatoms",
                     "potentially_toxic_nuisance_dinos","sm_copepods",
-                    "sm_phyto","tychopelagic_diatoms")
+                    "sm_phyto","tychopelagic_diatoms"),
+      min_year = NULL,
+      max_year = NULL
     )
+    
+    mon_thr <- 8  # PH1 monthly threshold
     
     # ------------------------
     # Load WFS
@@ -91,7 +102,7 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     })
     
     # ------------------------
-    # Polygon click
+    # Polygon click -> reset dataset and lifeforms
     # ------------------------
     observeEvent(input$map_shape_click, {
       click <- input$map_shape_click
@@ -108,19 +119,35 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
                     highlightOptions=highlightOptions(color="orange", weight=3, bringToFront=TRUE),
                     label=~paste0("ID: ",ID))
       
+      # Reset dataset and lifeforms
+      updateSelectInput(session, "dataset_name_filter", selected = "All")
+      updateSelectInput(session, "lifeform1_filter", selected = "None")
+      updateSelectInput(session, "lifeform2_filter", selected = "None")
+      
       # Update dataset choices
       req(rv$assessment)
       filtered_region <- rv$assessment %>% filter(region_id == rv$selected_ID)
       rv$dataset_choices <- c("All", unique(filtered_region$dataset_name))
-      log_msg(paste("Dataset choices updated:", paste(rv$dataset_choices, collapse=", ")))
+      
+      # Determine min/max year for sliders
+      years <- as.integer(substr(filtered_region$period, 1, 4))
+      rv$min_year <- min(years, na.rm = TRUE)
+      rv$max_year <- max(years, na.rm = TRUE)
     })
     
     # ------------------------
-    # Dataset selector
+    # Dataset selector -> reset lifeforms
     # ------------------------
     output$dataset_selector <- renderUI({
       req(rv$dataset_choices)
       selectInput(ns("dataset_name_filter"), "Select dataset_name:", choices = rv$dataset_choices, selected = "All")
+    })
+    
+    observeEvent(input$dataset_name_filter, {
+      req(rv$selected_ID)
+      # Reset lifeforms when dataset changes
+      updateSelectInput(session, "lifeform1_filter", selected = "None")
+      updateSelectInput(session, "lifeform2_filter", selected = "None")
     })
     
     # ------------------------
@@ -170,7 +197,6 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
         rename(num_samples = numSamples) %>%
         filter(!is.na(abundance) & num_samples > 0)
       
-      # Weighted average if duplicate period + lifeform
       df %>%
         group_by(period, lifeform) %>%
         summarise(
@@ -182,24 +208,77 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     }
     
     # ------------------------
-    # Lifeform table
+    # Lifeform dataframe (reactive)
+    # Only generate if both lifeforms are selected
     # ------------------------
-    output$lifeform_table <- renderTable({
-      req(rv$assessment, rv$selected_ID, input$dataset_name_filter)
-      lf1 <- input$lifeform1_filter
-      lf2 <- input$lifeform2_filter
-      if (is.null(lf1) || is.null(lf2) || lf1=="None" || lf2=="None") {
-        log_msg("Waiting for both lifeforms to be selected...")
-        return(NULL)
-      }
+    lifeform_df <- reactive({
+      req(rv$assessment, rv$selected_ID,
+          input$dataset_name_filter,
+          input$lifeform1_filter != "None",
+          input$lifeform2_filter != "None")
       
-      log_msg(paste("Generating lifeform table for", lf1, lf2))
       df_filtered <- rv$assessment %>% filter(region_id == rv$selected_ID)
       if (input$dataset_name_filter != "All") {
         df_filtered <- df_filtered %>% filter(dataset_name == input$dataset_name_filter)
       }
       
-      convert_lifeform_df(df_filtered, lf1, lf2)
+      convert_lifeform_df(df_filtered, input$lifeform1_filter, input$lifeform2_filter)
+    })
+    
+    output$lifeform_table <- renderTable({
+      req(lifeform_df())
+      lifeform_df()
+    })
+    
+    # ------------------------
+    # Time sliders for PH1
+    # ------------------------
+    output$timesliders_ui <- renderUI({
+      req(lifeform_df(), rv$min_year, rv$max_year)
+      
+      mid <- floor((rv$min_year + rv$max_year) / 2)
+      
+      tagList(
+        sliderInput(
+          ns("time_slider_1"),
+          "Reference Period",
+          min = rv$min_year,
+          max = rv$max_year,
+          value = c(rv$min_year, mid),
+          step = 1,
+          sep = ""
+        ),
+        sliderInput(
+          ns("time_slider_2"),
+          "Comparison Period",
+          min = rv$min_year,
+          max = rv$max_year,
+          value = c(mid, rv$max_year),
+          step = 1,
+          sep = ""
+        )
+      )
+    })
+    
+    # ------------------------
+    # PH1 analysis plot
+    # Only runs if all inputs are set
+    # ------------------------
+    analysis_data <- reactive({
+      req(lifeform_df(), input$lifeform1_filter, input$lifeform2_filter,
+          input$time_slider_1, input$time_slider_2)
+      
+      run_ph1_analysis(
+        df = lifeform_df() %>% filter(lifeform %in% c(input$lifeform1_filter, input$lifeform2_filter)),
+        ref_years = input$time_slider_1,
+        comp_years = input$time_slider_2,
+        mon_thr = mon_thr
+      )
+    })
+    
+    output$analysis_plot <- renderPlot({
+      req(analysis_data())
+      print(analysis_data()$env_plots[[1]])
     })
     
     # ------------------------
@@ -209,6 +288,9 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
       observeEvent(reset_trigger(), {
         rv$selected_ID <- NULL
         rv$dataset_choices <- NULL
+        updateSelectInput(session, "dataset_name_filter", selected = "All")
+        updateSelectInput(session, "lifeform1_filter", selected = "None")
+        updateSelectInput(session, "lifeform2_filter", selected = "None")
         log_msg("Reset triggered")
         if (!is.null(rv$features)) {
           leafletProxy("map", session) %>% clearShapes() %>%
