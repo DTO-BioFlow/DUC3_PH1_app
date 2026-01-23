@@ -17,11 +17,23 @@ library(ggplot2)
 source("modules/Supporting_scripts/PI_functions_v1.R")
 source("modules/Supporting_scripts/Supporting_functions_v2.R")
 
-
 run_ph1_analysis <- function(df,
+                             lf1,
+                             lf2,
                              ref_years,
                              comp_years,
                              mon_thr = 8) {
+  
+  df <- df %>%
+    pivot_longer(
+      cols = c(lf1, lf2),
+      names_to = "lifeform",
+      values_to = "abundance"
+    ) %>%
+    select(period, lifeform, abundance, num_samples)
+  
+  print(df)
+  
   # ---------------------------------------------------------------------------
   # Parse dates
   # ---------------------------------------------------------------------------

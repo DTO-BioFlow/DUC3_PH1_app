@@ -42,21 +42,7 @@ customUI <- function(id) {
     
     conditionalPanel(
       condition = sprintf("input['%s'] == 'upload'", ns("data_source")),
-      fluidRow(
-        column(
-          10,
-          fileInput(ns("file"), "Upload CSV file", accept = ".csv")
-        ),
-        column(
-          2,
-          tags$a(
-            href = "https://github.com/DTO-BioFlow/DUC3_dataset_inventory",
-            target = "_blank",
-            title = "Dataset format and specifications",
-            icon("info-circle")
-          )
-        )
-      )
+      fileInput(ns("file"), "Upload CSV file", accept = ".csv")
     ),
     
     conditionalPanel(
@@ -71,14 +57,20 @@ customUI <- function(id) {
     ),
     
     hr(),
+    
+    # Lifeform selectors
     uiOutput(ns("lifeform_selectors_ui")),
     hr(),
+    
+    # Time sliders
     uiOutput(ns("timesliders_ui")),
     hr(),
     
+    # Analysis plot
     plotOutput(ns("analysis_plot")),
     hr(),
     
+    # Download results
     downloadButton(ns("download_results"), "Download Analysis Results")
   )
 }
@@ -100,21 +92,11 @@ customServer <- function(id, reset_trigger) {
     
     mon_thr <- 8
     
-    # ---------------------------------------------------------------------
-    # RESET HELPERS
-    # ---------------------------------------------------------------------
     reset_after_data <- function() {
       updateSelectizeInput(session, "lifeform_1", selected = "NONE")
       updateSelectizeInput(session, "lifeform_2", selected = "NONE")
     }
     
-    reset_after_lifeform <- function() {
-      NULL
-    }
-    
-    # ---------------------------------------------------------------------
-    # CENTRAL VALIDATION + PROCESSING
-    # ---------------------------------------------------------------------
     validate_and_process <- function(df, source_label = "dataset") {
       
       res <- check_data_PH1(df)
@@ -138,7 +120,8 @@ customServer <- function(id, reset_trigger) {
       
       # ---- Valid data: proceed ----
       state$df <- df
-      state$lifeform_levels <- sort(unique(df$lifeform))
+      # Select lifeform columns (all except period and num_samples)
+      state$lifeform_levels <- setdiff(names(df), c("period", "num_samples"))
       
       years <- as.integer(substr(df$period, 1, 4))
       state$min_year <- min(years, na.rm = TRUE)
@@ -149,10 +132,9 @@ customServer <- function(id, reset_trigger) {
     }
     
     # ---------------------------------------------------------------------
-    # Load catalog (once)
+    # Load catalog
     # ---------------------------------------------------------------------
     observeEvent(input$data_source, {
-      
       reset_after_data()
       
       if (input$data_source == "catalog" && !state$catalog_loaded) {
@@ -197,7 +179,7 @@ customServer <- function(id, reset_trigger) {
     })
     
     # ---------------------------------------------------------------------
-    # UPLOAD CSV
+    # Upload CSV
     # ---------------------------------------------------------------------
     observeEvent(input$file, {
       req(input$data_source == "upload", input$file)
@@ -208,13 +190,9 @@ customServer <- function(id, reset_trigger) {
       )
       
       if (is.null(df)) {
-        showModal(
-          modalDialog(
-            title = "File read error",
-            "The uploaded file could not be read as a valid CSV.",
-            easyClose = TRUE
-          )
-        )
+        showModal(modalDialog(title = "File read error",
+                              "The uploaded file could not be read as a valid CSV.",
+                              easyClose = TRUE))
         return()
       }
       
@@ -222,7 +200,7 @@ customServer <- function(id, reset_trigger) {
     })
     
     # ---------------------------------------------------------------------
-    # CATALOG CSV
+    # Catalog CSV
     # ---------------------------------------------------------------------
     observeEvent(input$dataset_id, {
       req(input$data_source == "catalog", input$dataset_id != "NONE")
@@ -260,8 +238,8 @@ customServer <- function(id, reset_trigger) {
       )
     })
     
-    observeEvent(input$lifeform_1, reset_after_lifeform(), ignoreInit = TRUE)
-    observeEvent(input$lifeform_2, reset_after_lifeform(), ignoreInit = TRUE)
+    #observeEvent(input$lifeform_1, reset_after_data(), ignoreInit = TRUE)
+    #observeEvent(input$lifeform_2, reset_after_data(), ignoreInit = TRUE)
     
     # ---------------------------------------------------------------------
     # Time sliders
@@ -305,13 +283,17 @@ customServer <- function(id, reset_trigger) {
         input$time_slider_2
       )
       
-      run_ph1_analysis(
-        df = state$df %>% 
-          filter(lifeform %in% c(input$lifeform_1, input$lifeform_2)),
+      # Run PH1 analysis
+      results <- run_ph1_analysis(
+        df = state$df,
+        lf1 = input$lifeform_1,
+        lf2 = input$lifeform_2,
         ref_years = input$time_slider_1,
         comp_years = input$time_slider_2,
         mon_thr = mon_thr
       )
+      
+      return(results)
     })
     
     output$analysis_plot <- renderPlot({
