@@ -204,18 +204,21 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
       df <- df %>%
         mutate(period = as.character(period)) %>%
         filter(grepl("^\\d{4}-\\d{2}$", period)) %>%
-        pivot_longer(cols = all_of(c(lf1, lf2)), names_to = "lifeform", values_to = "abundance") %>%
-        rename(num_samples = numSamples) %>%
-        filter(!is.na(abundance) & num_samples > 0)
+        filter(!is.na(.data[[lf1]]) | !is.na(.data[[lf2]])) %>%
+        rename(num_samples = numSamples)
       
-      df %>%
-        group_by(period, lifeform) %>%
+      # Weighted average by num_samples if multiple records per period
+      df_wide <- df %>%
+        group_by(period) %>%
         summarise(
-          abundance = sum(abundance * num_samples) / sum(num_samples),
-          num_samples = sum(num_samples),
+          !!lf1 := sum(.data[[lf1]] * num_samples, na.rm = TRUE) / sum(num_samples, na.rm = TRUE),
+          !!lf2 := sum(.data[[lf2]] * num_samples, na.rm = TRUE) / sum(num_samples, na.rm = TRUE),
+          num_samples = sum(num_samples, na.rm = TRUE),
           .groups = "drop"
         ) %>%
-        arrange(period, lifeform)
+        arrange(period)
+      
+      return(df_wide)
     }
     
     # ------------------------
