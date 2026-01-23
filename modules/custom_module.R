@@ -1,26 +1,23 @@
 library(shiny)
 library(jsonlite)
 library(dplyr)
-library(tidyr)
 library(readr)
-library(lubridate)
 library(openxlsx)
 
-# Analysis packages
 library(data.table)
 library(janitor)
 library(pracma)
 library(broom)
 library(EnvStats)
 library(patchwork)
-library(rnaturalearth)
 library(zoo)
 library(purrr)
 
 # -------------------------------------------------------------------------
-# Source analysis functions
+# Source analysis & validation functions
 # -------------------------------------------------------------------------
 source("modules/PH1_function.R")
+source("modules/test_PH1_data.R")  # provides check_data_PH1()
 source("modules/Supporting_scripts/PI_functions_v1.R")
 source("modules/Supporting_scripts/Supporting_functions_v2.R")
 
@@ -29,6 +26,7 @@ source("modules/Supporting_scripts/Supporting_functions_v2.R")
 # -------------------------------------------------------------------------
 customUI <- function(id) {
   ns <- NS(id)
+  
   tagList(
     h3("Custom Data Workflow"),
     
@@ -44,7 +42,21 @@ customUI <- function(id) {
     
     conditionalPanel(
       condition = sprintf("input['%s'] == 'upload'", ns("data_source")),
-      fileInput(ns("file"), "Upload CSV file", accept = ".csv")
+      fluidRow(
+        column(
+          10,
+          fileInput(ns("file"), "Upload CSV file", accept = ".csv")
+        ),
+        column(
+          2,
+          tags$a(
+            href = "https://github.com/DTO-BioFlow/DUC3_dataset_inventory",
+            target = "_blank",
+            title = "Dataset format and specifications",
+            icon("info-circle")
+          )
+        )
+      )
     ),
     
     conditionalPanel(
@@ -52,15 +64,16 @@ customUI <- function(id) {
       selectizeInput(
         ns("dataset_id"),
         "Available datasets",
-        choices = NULL,
-        options = list(placeholder = "Select a dataset...")
+        choices = c("- None selected -" = "NONE"),
+        selected = "NONE"
       ),
       uiOutput(ns("dataset_info"))
     ),
     
     hr(),
+    uiOutput(ns("lifeform_selectors_ui")),
+    hr(),
     uiOutput(ns("timesliders_ui")),
-    verbatimTextOutput(ns("time_ranges")),
     hr(),
     
     plotOutput(ns("analysis_plot")),
@@ -77,175 +90,244 @@ customServer <- function(id, reset_trigger) {
   moduleServer(id, function(input, output, session) {
     
     state <- reactiveValues(
-      df_custom = NULL,
-      df_lf = NULL,
+      df = NULL,
       datasets = NULL,
+      lifeform_levels = NULL,
       min_year = NULL,
       max_year = NULL,
-      ref_years = NULL,
-      comp_years = NULL,
-      file_lf = NULL,
-      analysis_results = NULL
+      catalog_loaded = FALSE
     )
     
-    required_cols <- c("period", "lifeform", "abundance", "num_samples")
     mon_thr <- 8
     
     # ---------------------------------------------------------------------
-    # Initialize
+    # RESET HELPERS
     # ---------------------------------------------------------------------
-    initialize <- function() {
-      state$df_custom <- NULL
-      state$df_lf <- NULL
-      state$ref_years <- NULL
-      state$comp_years <- NULL
-      state$analysis_results <- NULL
+    reset_after_data <- function() {
+      updateSelectizeInput(session, "lifeform_1", selected = "NONE")
+      updateSelectizeInput(session, "lifeform_2", selected = "NONE")
     }
-    initialize()
+    
+    reset_after_lifeform <- function() {
+      NULL
+    }
     
     # ---------------------------------------------------------------------
-    # Load catalog
+    # CENTRAL VALIDATION + PROCESSING
     # ---------------------------------------------------------------------
-    observeEvent(TRUE, {
-      catalog_url <- "https://raw.githubusercontent.com/DTO-BioFlow/DUC3_dataset_inventory/refs/heads/main/data_catalog/data_catalog_PH1.json"
-      datasets <- fromJSON(catalog_url, simplifyDataFrame = FALSE)
-      state$datasets <- datasets
+    validate_and_process <- function(df, source_label = "dataset") {
       
-      choices <- setNames(
-        vapply(datasets, function(x) x$id, character(1)),
-        vapply(datasets, function(x) x$name, character(1))
-      )
+      res <- check_data_PH1(df)
       
-      updateSelectizeInput(session, "dataset_id", choices = choices)
-    }, once = TRUE)
-    
-    # ---------------------------------------------------------------------
-    # Dataset info
-    # ---------------------------------------------------------------------
-    output$dataset_info <- renderUI({
-      req(input$dataset_id, state$datasets)
-      dataset <- state$datasets[
-        vapply(state$datasets, function(x) x$id, character(1)) == input$dataset_id
-      ][[1]]
-      
-      tagList(
-        tags$p(tags$strong("Description:"), dataset$description),
-        tags$p(tags$strong("Region:"), dataset$region),
-        tags$p(tags$strong("Lifeforms:"), paste(dataset$lifeforms, collapse = ", "))
-      )
-    })
-    
-    # ---------------------------------------------------------------------
-    # CSV processing (NO period separation!)
-    # ---------------------------------------------------------------------
-    process_file <- function(path, name = NULL) {
-      
-      df <- read_csv(path, show_col_types = FALSE)
-      
-      if (!all(required_cols %in% names(df))) {
-        showModal(modalDialog(
-          title = "Invalid file format",
-          "CSV must contain: period, lifeform, abundance, num_samples",
-          easyClose = TRUE
-        ))
-        return(NULL)
+      if (!isTRUE(res$pass)) {
+        showModal(
+          modalDialog(
+            title = "Invalid dataset",
+            paste(
+              "The selected", source_label, "does not comply with the PH1 data specification.",
+              "",
+              paste("Reason:", res$message),
+              sep = "\n"
+            ),
+            easyClose = TRUE,
+            footer = modalButton("Close")
+          )
+        )
+        return(FALSE)
       }
       
-      df <- df %>% mutate(period = gsub('"', "", period))
-      
-      state$df_custom <- df
-      state$df_lf <- unique(df$lifeform)
-      state$file_lf <- ifelse(is.null(name), basename(path), name)
+      # ---- Valid data: proceed ----
+      state$df <- df
+      state$lifeform_levels <- sort(unique(df$lifeform))
       
       years <- as.integer(substr(df$period, 1, 4))
       state$min_year <- min(years, na.rm = TRUE)
       state$max_year <- max(years, na.rm = TRUE)
+      
+      reset_after_data()
+      TRUE
     }
     
     # ---------------------------------------------------------------------
-    # Upload / catalog handlers
+    # Load catalog (once)
+    # ---------------------------------------------------------------------
+    observeEvent(input$data_source, {
+      
+      reset_after_data()
+      
+      if (input$data_source == "catalog" && !state$catalog_loaded) {
+        url <- "https://raw.githubusercontent.com/DTO-BioFlow/DUC3_dataset_inventory/refs/heads/main/data_catalog/data_catalog_PH1.json"
+        state$datasets <- fromJSON(url, simplifyVector = FALSE)
+        state$catalog_loaded <- TRUE
+        
+        updateSelectizeInput(
+          session,
+          "dataset_id",
+          choices = c(
+            "- None selected -" = "NONE",
+            setNames(
+              vapply(state$datasets, `[[`, character(1), "id"),
+              vapply(state$datasets, `[[`, character(1), "name")
+            )
+          ),
+          selected = "NONE"
+        )
+      }
+    }, ignoreInit = TRUE)
+    
+    # ---------------------------------------------------------------------
+    # Dataset info panel
+    # ---------------------------------------------------------------------
+    output$dataset_info <- renderUI({
+      req(input$dataset_id != "NONE", state$datasets)
+      
+      idx <- which(vapply(state$datasets, `[[`, character(1), "id") == input$dataset_id)
+      if (!length(idx)) return(NULL)
+      
+      d <- state$datasets[[idx]]
+      
+      tagList(
+        tags$p(tags$strong("Description:"), d$description),
+        tags$p(tags$strong("Region:"), d$region),
+        tags$p(tags$strong("Lifeforms:"), paste(d$lifeforms, collapse = ", ")),
+        tags$p(tags$strong("Data preview:"), tags$a(href = d$sources$data_store, d$sources$data_store)),
+        tags$p(tags$strong("Source dataset:"), tags$a(href = d$sources$source_link, d$sources$source_link)),
+        tags$p(tags$strong("Lifeform extraction script:"), tags$a(href = d$sources$flow, d$sources$flow))
+      )
+    })
+    
+    # ---------------------------------------------------------------------
+    # UPLOAD CSV
     # ---------------------------------------------------------------------
     observeEvent(input$file, {
       req(input$data_source == "upload", input$file)
-      process_file(input$file$datapath, input$file$name)
+      
+      df <- tryCatch(
+        read_csv(input$file$datapath, show_col_types = FALSE),
+        error = function(e) NULL
+      )
+      
+      if (is.null(df)) {
+        showModal(
+          modalDialog(
+            title = "File read error",
+            "The uploaded file could not be read as a valid CSV.",
+            easyClose = TRUE
+          )
+        )
+        return()
+      }
+      
+      validate_and_process(df, source_label = "uploaded file")
     })
     
+    # ---------------------------------------------------------------------
+    # CATALOG CSV
+    # ---------------------------------------------------------------------
     observeEvent(input$dataset_id, {
-      req(input$data_source == "catalog")
-      dataset <- state$datasets[
-        vapply(state$datasets, function(x) x$id, character(1)) == input$dataset_id
-      ][[1]]
+      req(input$data_source == "catalog", input$dataset_id != "NONE")
+      
+      idx <- which(vapply(state$datasets, `[[`, character(1), "id") == input$dataset_id)
+      if (!length(idx)) return()
       
       tmp <- tempfile(fileext = ".csv")
-      download.file(dataset$sources$data, tmp, quiet = TRUE)
-      process_file(tmp, basename(dataset$sources$data))
+      download.file(state$datasets[[idx]]$sources$data_store, tmp, quiet = TRUE)
+      
+      df <- read_csv(tmp, show_col_types = FALSE)
+      validate_and_process(df, source_label = "catalog dataset")
+      
+    }, ignoreInit = TRUE)
+    
+    # ---------------------------------------------------------------------
+    # Lifeform selectors
+    # ---------------------------------------------------------------------
+    output$lifeform_selectors_ui <- renderUI({
+      req(state$lifeform_levels)
+      
+      tagList(
+        selectizeInput(
+          session$ns("lifeform_1"),
+          "Lifeform 1",
+          choices = c("- None selected -" = "NONE", state$lifeform_levels),
+          selected = "NONE"
+        ),
+        selectizeInput(
+          session$ns("lifeform_2"),
+          "Lifeform 2",
+          choices = c("- None selected -" = "NONE", state$lifeform_levels),
+          selected = "NONE"
+        )
+      )
     })
+    
+    observeEvent(input$lifeform_1, reset_after_lifeform(), ignoreInit = TRUE)
+    observeEvent(input$lifeform_2, reset_after_lifeform(), ignoreInit = TRUE)
     
     # ---------------------------------------------------------------------
     # Time sliders
     # ---------------------------------------------------------------------
     output$timesliders_ui <- renderUI({
-      req(state$min_year, state$max_year)
+      req(input$lifeform_1 != "NONE", input$lifeform_2 != "NONE")
+      
       mid <- floor((state$min_year + state$max_year) / 2)
       
       tagList(
-        sliderInput(session$ns("time_slider_1"), "Reference Period",
-                    min = state$min_year, max = state$max_year,
-                    value = c(state$min_year, mid), step = 1),
-        sliderInput(session$ns("time_slider_2"), "Comparison Period",
-                    min = state$min_year, max = state$max_year,
-                    value = c(mid, state$max_year), step = 1)
+        sliderInput(
+          session$ns("time_slider_1"),
+          "Reference Period",
+          min = state$min_year,
+          max = state$max_year,
+          value = c(state$min_year, mid),
+          step = 1,
+          sep = ""
+        ),
+        sliderInput(
+          session$ns("time_slider_2"),
+          "Comparison Period",
+          min = state$min_year,
+          max = state$max_year,
+          value = c(mid, state$max_year),
+          step = 1,
+          sep = ""
+        )
       )
     })
     
-    output$time_ranges <- renderPrint({
-      req(input$time_slider_1, input$time_slider_2)
-      state$ref_years <- input$time_slider_1
-      state$comp_years <- input$time_slider_2
-      cat("Reference:", state$ref_years, "\n")
-      cat("Comparison:", state$comp_years, "\n")
-    })
-    
     # ---------------------------------------------------------------------
-    # ANALYSIS (single call)
+    # ANALYSIS
     # ---------------------------------------------------------------------
     analysis_data <- reactive({
-      req(state$df_custom, state$df_lf, state$ref_years, state$comp_years)
-      
-      # required by PH1 function
-      df_lf <- state$df_lf
-      
-      results <- run_ph1_analysis(
-        df         = state$df_custom,
-        ref_years  = state$ref_years,
-        comp_years = state$comp_years,
-        mon_thr    = mon_thr
+      req(
+        state$df,
+        input$lifeform_1 != "NONE",
+        input$lifeform_2 != "NONE",
+        input$time_slider_1,
+        input$time_slider_2
       )
       
-      state$analysis_results <- results$datasets
-      results
+      run_ph1_analysis(
+        df = state$df %>% 
+          filter(lifeform %in% c(input$lifeform_1, input$lifeform_2)),
+        ref_years = input$time_slider_1,
+        comp_years = input$time_slider_2,
+        mon_thr = mon_thr
+      )
     })
     
-    # ---------------------------------------------------------------------
-    # Plot
-    # ---------------------------------------------------------------------
     output$analysis_plot <- renderPlot({
       req(analysis_data())
       print(analysis_data()$env_plots[[1]])
     })
     
     # ---------------------------------------------------------------------
-    # Download
+    # DOWNLOAD
     # ---------------------------------------------------------------------
     output$download_results <- downloadHandler(
-      filename = function() {
-        paste0(tools::file_path_sans_ext(state$file_lf), "_PH1_results.xlsx")
-      },
+      filename = function() "PH1_results.xlsx",
       content = function(file) {
-        openxlsx::write.xlsx(state$analysis_results, file, overwrite = TRUE)
+        openxlsx::write.xlsx(analysis_data()$datasets, file)
       }
     )
     
-    observeEvent(reset_trigger(), initialize())
   })
 }
