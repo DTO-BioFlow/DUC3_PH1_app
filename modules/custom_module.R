@@ -28,7 +28,7 @@ customUI <- function(id) {
   ns <- NS(id)
   
   tagList(
-    h3("Custom Data Workflow"),
+    h3("Assessment with Custom data"),
     
     radioButtons(
       ns("data_source"),
@@ -264,7 +264,7 @@ customServer <- function(id, reset_trigger) {
           "Comparison Period",
           min = state$min_year,
           max = state$max_year,
-          value = c(mid, state$max_year),
+          value = c(mid + 1, state$max_year),
           step = 1,
           sep = ""
         )

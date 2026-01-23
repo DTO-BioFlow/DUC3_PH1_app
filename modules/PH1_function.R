@@ -75,6 +75,14 @@ run_ph1_analysis <- function(df,
   
   df <- fill_gaps(x = df, max_gap = 3)
   
+  # Create df_lf_user
+  df_lf_user <- data.frame(V1 = lf1, V2 = lf2)
+  
+  # Check if df_lf_user is already in df_lf
+  if (!any(apply(df_lf, 1, function(row) all(row == df_lf_user)))) {
+    df_lf <- rbind(df_lf, df_lf_user)
+  }
+  
   # ---------------------------------------------------------------------------
   # Split reference and comparison periods
   # ---------------------------------------------------------------------------

@@ -11,13 +11,16 @@ wfs_url <- config$plet_wfs_url
 
 # ---------- UI ----------
 ui <- navbarPage(
-  title = "Shiny Workflow App",
+  title = "PH1: Changes in Plankton Communities",
   id = "tabs",
   
   tabPanel(
     "Welcome",
-    value = "welcome",
-    h3("Welcome to the workflow app")
+    value = "Start",
+    tags$iframe(
+      src = "https://dto-bioflow.github.io/DUC3_PH1_app/",
+      style = "width:100%; height:85vh; border:none;"
+    )
   ),
   
   tabPanel(
