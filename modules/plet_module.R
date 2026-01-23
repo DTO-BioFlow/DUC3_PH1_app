@@ -204,18 +204,21 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
       df <- df %>%
         mutate(period = as.character(period)) %>%
         filter(grepl("^\\d{4}-\\d{2}$", period)) %>%
-        pivot_longer(cols = all_of(c(lf1, lf2)), names_to = "lifeform", values_to = "abundance") %>%
-        rename(num_samples = numSamples) %>%
-        filter(!is.na(abundance) & num_samples > 0)
+        filter(!is.na(.data[[lf1]]) | !is.na(.data[[lf2]])) %>%
+        rename(num_samples = numSamples)
       
-      df %>%
-        group_by(period, lifeform) %>%
+      # Weighted average by num_samples if multiple records per period
+      df_wide <- df %>%
+        group_by(period) %>%
         summarise(
-          abundance = sum(abundance * num_samples) / sum(num_samples),
-          num_samples = sum(num_samples),
+          !!lf1 := sum(.data[[lf1]] * num_samples, na.rm = TRUE) / sum(num_samples, na.rm = TRUE),
+          !!lf2 := sum(.data[[lf2]] * num_samples, na.rm = TRUE) / sum(num_samples, na.rm = TRUE),
+          num_samples = sum(num_samples, na.rm = TRUE),
           .groups = "drop"
         ) %>%
-        arrange(period, lifeform)
+        arrange(period)
+      
+      return(df_wide)
     }
     
     # ------------------------
@@ -275,47 +278,109 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     })
     
     # ------------------------
-    # PH1 analysis plot
+    # Lifeform dataframe (reactive)
     # ------------------------
-    analysis_data <- reactive({
-      req(
-        lifeform_df(),
-        input$lifeform1_filter,
-        input$lifeform2_filter,
-        input$time_slider_1,
-        input$time_slider_2
-      )
+    lifeform_df <- reactive({
+      req(rv$assessment, rv$selected_ID,
+          input$dataset_name_filter,
+          input$lifeform1_filter != "None",
+          input$lifeform2_filter != "None")
       
-      the_df <- lifeform_df() %>%
-        filter(lifeform %in% c(input$lifeform1_filter, input$lifeform2_filter)) %>%
-        group_by(period) %>%
-        filter(n_distinct(lifeform) == 2) %>%   # Keep only periods with both lifeforms
-        ungroup()
+      df_filtered <- rv$assessment %>% filter(region_id == rv$selected_ID)
+      if (input$dataset_name_filter != "All") {
+        df_filtered <- df_filtered %>% filter(dataset_name == input$dataset_name_filter)
+      }
       
-      # ---- Logging ----
-      log_msg("PH1 INPUT DATAFRAME (to be passed to run_ph1_analysis):")
-      print(the_df, n = Inf)
-      log_msg("PH1 INPUT DATAFRAME STRUCTURE:")
-      str(the_df)
-      log_msg("ref years")
-      print(input$time_slider_1)
-      log_msg("comp_years")
-      print(input$time_slider_2)
-      log_msg("month_thr")
-      print(mon_thr)
+      # Keep only the selected lifeforms
+      df_filtered <- df_filtered %>% select(period, numSamples, all_of(c(input$lifeform1_filter, input$lifeform2_filter)))
       
-      run_ph1_analysis(
-        df         = the_df,  # Pass the exact dataframe
-        ref_years  = input$time_slider_1,
-        comp_years = input$time_slider_2,
-        mon_thr    = mon_thr
+      convert_lifeform_df(df_filtered, input$lifeform1_filter, input$lifeform2_filter)
+    })
+    
+    # ------------------------
+    # Render lifeform table (scrollable)
+    # ------------------------
+    output$lifeform_table <- renderUI({
+      req(lifeform_df())
+      df <- lifeform_df()
+      ns <- session$ns
+      
+      tagList(
+        # Show total records
+        tags$p(strong(paste("Total records in dataframe:", nrow(df)))),
+        
+        # Scrollable table
+        tags$div(style = "max-height: 400px; overflow-y: auto;",
+                 tableOutput(ns("lifeform_table_inner"))
+        ),
+        
+        # Download button
+        downloadButton(ns("download_csv"), "Download CSV")
       )
     })
     
-    output$analysis_plot <- renderPlot({
-      req(analysis_data())
-      print(analysis_data()$env_plots[[1]])
+    output$lifeform_table_inner <- renderTable({
+      req(lifeform_df())
+      lifeform_df()
     })
+    
+    output$download_csv <- downloadHandler(
+      filename = function() {
+        paste0("lifeform_data_", Sys.Date(), ".csv")
+      },
+      content = function(file) {
+        write.csv(lifeform_df(), file, row.names = FALSE)
+      }
+    )
+    
+    # ------------------------
+    # Time sliders for Reference/Comparison periods
+    # ------------------------
+    output$timesliders_ui <- renderUI({
+      req(lifeform_df())
+      
+      df <- lifeform_df()
+      years <- as.integer(substr(df$period, 1, 4))
+      min_year <- min(years, na.rm = TRUE)
+      max_year <- max(years, na.rm = TRUE)
+      mid_year <- floor((min_year + max_year) / 2)
+      
+      ns <- session$ns
+      
+      tagList(
+        sliderInput(ns("time_slider_1"),
+                    "Reference Period",
+                    min = min_year, max = max_year,
+                    value = c(min_year, mid_year), step = 1, sep = ""),
+        sliderInput(ns("time_slider_2"),
+                    "Comparison Period",
+                    min = min_year, max = max_year,
+                    value = c(mid_year + 1, max_year), step = 1, sep = ""),
+        # Show counts below sliders
+        uiOutput(ns("slider_counts"))
+      )
+    })
+    
+    # ------------------------
+    # Show Reference/Comparison counts
+    # ------------------------
+    output$slider_counts <- renderUI({
+      req(lifeform_df(), input$time_slider_1, input$time_slider_2)
+      
+      df <- lifeform_df()
+      years <- as.integer(substr(df$period, 1, 4))
+      
+      ref_count <- sum(years >= input$time_slider_1[1] & years <= input$time_slider_1[2])
+      comp_count <- sum(years >= input$time_slider_2[1] & years <= input$time_slider_2[2])
+      
+      tagList(
+        tags$p(strong(paste0("Reference period: ", input$time_slider_1[1], "-", input$time_slider_1[2],
+                             " (observations: ", ref_count, ")"))),
+        tags$p(strong(paste0("Comparison period: ", input$time_slider_2[1], "-", input$time_slider_2[2],
+                             " (observations: ", comp_count, ")")))
+      )
+    })
+    
     
     # ------------------------
     # Reset trigger

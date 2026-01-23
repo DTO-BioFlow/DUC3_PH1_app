@@ -18,38 +18,32 @@ check_data_PH1 <- function(x) {
     
     # ---- Column count ----
     if (ncol(df) != 4) {
-      stop("Data must contain exactly 4 columns.")
+      stop("Data must contain exactly 4 columns: period, two abundance columns, num_samples")
     }
     
-    # ---- Column names & order ----
-    expected_names <- c("period", "lifeform", "abundance", "num_samples")
-    if (!identical(names(df), expected_names)) {
-      stop("Column names or order are incorrect.")
-    }
+    # ---- Column positions ----
+    period_col <- df[[1]]
+    abundance_cols <- df[, 2:3]
+    num_samples_col <- df[[4]]
     
     # ---- period ----
-    if (!is.character(df$period)) {
-      stop("'period' must be character.")
+    if (!is.character(period_col)) {
+      stop("First column 'period' must be character.")
     }
-    if (any(!grepl("^[0-9]{4}-(0[1-9]|1[0-2])$", df$period))) {
+    if (any(!grepl("^[0-9]{4}-(0[1-9]|1[0-2])$", period_col))) {
       stop("'period' must follow YYYY-MM format.")
     }
     
-    # ---- lifeform ----
-    if (!is.character(df$lifeform)) {
-      stop("'lifeform' must be character.")
-    }
-    
-    # ---- abundance ----
-    if (!is.numeric(df$abundance)) {
-      stop("'abundance' must be numeric.")
+    # ---- abundance columns ----
+    if (!all(sapply(abundance_cols, is.numeric))) {
+      stop("The two middle columns must be numeric (abundance data).")
     }
     
     # ---- num_samples ----
-    if (!is.numeric(df$num_samples)) {
-      stop("'num_samples' must be numeric.")
+    if (!is.numeric(num_samples_col)) {
+      stop("Last column 'num_samples' must be numeric.")
     }
-    if (any(df$num_samples %% 1 != 0)) {
+    if (any(num_samples_col %% 1 != 0)) {
       stop("'num_samples' must contain integers only.")
     }
     
