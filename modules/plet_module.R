@@ -20,7 +20,7 @@ pletUI <- function(id) {
     fluidRow(
       column(
         width = 6,
-        h4("OSPAR Common Procedure Assessment Units"),
+        h4("OSPAR Common Procedure Assessment using PLET data"),
         leafletOutput(ns("map"), height = "500px") %>% withSpinner(),
         br(),
         verbatimTextOutput(ns("selected_info")),
@@ -187,15 +187,15 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
       poly <- rv$features[rv$features$ID == rv$selected_ID, ]
       if (!is.null(poly)) {
         cat("Selected Region ID:", poly$ID, "\n")
-        cat("Columns:", paste(names(poly), collapse=", "))
+        cat("Selected region name:", poly$LongName)
       }
     })
     
     # ------------------------
     # Lifeform debug prints
     # ------------------------
-    output$lifeform1_value <- renderText({ paste("Lifeform 1 selected:", input$lifeform1_filter) })
-    output$lifeform2_value <- renderText({ paste("Lifeform 2 selected:", input$lifeform2_filter) })
+    #output$lifeform1_value <- renderText({ paste("Lifeform 1 selected:", input$lifeform1_filter) })
+    #output$lifeform2_value <- renderText({ paste("Lifeform 2 selected:", input$lifeform2_filter) })
     
     # ------------------------
     # Convert and collapse duplicates
@@ -270,7 +270,7 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
           "Comparison Period",
           min = rv$min_year,
           max = rv$max_year,
-          value = c(mid, rv$max_year),
+          value = c(mid +1, rv$max_year),
           step = 1,
           sep = ""
         )
@@ -380,6 +380,37 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
                              " (observations: ", comp_count, ")")))
       )
     })
+    # ------------------------
+    # Run PH1 analysis
+    # ------------------------
+    analysis_data <- reactive({
+      req(
+        lifeform_df(),
+        input$lifeform1_filter != "None",
+        input$lifeform2_filter != "None",
+        input$time_slider_1,
+        input$time_slider_2
+      )
+      
+      run_ph1_analysis(
+        df         = lifeform_df(),
+        lf1        = input$lifeform1_filter,
+        lf2        = input$lifeform2_filter,
+        ref_years = input$time_slider_1,
+        comp_years = input$time_slider_2,
+        mon_thr   = mon_thr
+      )
+    })
+    output$analysis_plot <- renderPlot({
+      req(analysis_data())
+      print(analysis_data()$env_plots[[1]])
+    })
+    output$download_results <- downloadHandler(
+      filename = function() "PH1_results.xlsx",
+      content = function(file) {
+        openxlsx::write.xlsx(analysis_data()$datasets, file)
+      }
+    )
     
     
     # ------------------------
