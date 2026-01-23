@@ -46,18 +46,20 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
+    all_lifeforms <- c("auto_and_mix_dinos","carniv_zoo","ciliates","copepods",
+                       "crustacean","diatom","dinoflagellate","fish_larvae",
+                       "gelatinous","holoplankton","lg_copepods","lg_phyto",
+                       "meroplankton","non_carniv_zoo","pelagic_diatoms",
+                       "phytoplankton","potentially_toxic_nuisance_diatoms",
+                       "potentially_toxic_nuisance_dinos","sm_copepods",
+                       "sm_phyto","tychopelagic_diatoms")
+    
     rv <- reactiveValues(
       features = NULL,
       selected_ID = NULL,
       assessment = NULL,
       dataset_choices = NULL,
-      lifeforms = c("uto_and_mix_dinos","carniv_zoo","ciliates","copepods",
-                    "crustacean","diatom","dinoflagellate","fish_larvae",
-                    "gelatinous","holoplankton","lg_copepods","lg_phyto",
-                    "meroplankton","non_carniv_zoo","pelagic_diatoms",
-                    "phytoplankton","potentially_toxic_nuisance_diatoms",
-                    "potentially_toxic_nuisance_dinos","sm_copepods",
-                    "sm_phyto","tychopelagic_diatoms"),
+      lifeforms = all_lifeforms,
       min_year = NULL,
       max_year = NULL
     )
@@ -136,7 +138,7 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     })
     
     # ------------------------
-    # Dataset selector -> reset lifeforms
+    # Dataset selector -> reset lifeforms and dynamic lifeforms
     # ------------------------
     output$dataset_selector <- renderUI({
       req(rv$dataset_choices)
@@ -145,9 +147,19 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     
     observeEvent(input$dataset_name_filter, {
       req(rv$selected_ID)
-      # Reset lifeforms when dataset changes
+      
+      # Reset lifeforms
       updateSelectInput(session, "lifeform1_filter", selected = "None")
       updateSelectInput(session, "lifeform2_filter", selected = "None")
+      
+      # Update dynamic lifeform list based on dataset
+      filtered_region <- rv$assessment %>% filter(region_id == rv$selected_ID)
+      if (input$dataset_name_filter != "All") {
+        filtered_region <- filtered_region %>% filter(dataset_name == input$dataset_name_filter)
+      }
+      # Keep only columns with at least one non-NA value
+      dynamic_lifeforms <- all_lifeforms[sapply(filtered_region[, all_lifeforms], function(col) any(!is.na(col)))]
+      rv$lifeforms <- dynamic_lifeforms
     })
     
     # ------------------------
@@ -192,8 +204,7 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
       df <- df %>%
         mutate(period = as.character(period)) %>%
         filter(grepl("^\\d{4}-\\d{2}$", period)) %>%
-        select(period, numSamples, all_of(c(lf1, lf2))) %>%
-        pivot_longer(cols = all_of(c(lf1, lf2)), names_to="lifeform", values_to="abundance") %>%
+        pivot_longer(cols = all_of(c(lf1, lf2)), names_to = "lifeform", values_to = "abundance") %>%
         rename(num_samples = numSamples) %>%
         filter(!is.na(abundance) & num_samples > 0)
       
@@ -209,7 +220,6 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     
     # ------------------------
     # Lifeform dataframe (reactive)
-    # Only generate if both lifeforms are selected
     # ------------------------
     lifeform_df <- reactive({
       req(rv$assessment, rv$selected_ID,
@@ -222,6 +232,9 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
         df_filtered <- df_filtered %>% filter(dataset_name == input$dataset_name_filter)
       }
       
+      # Keep only the selected lifeforms
+      df_filtered <- df_filtered %>% select(period, numSamples, all_of(c(input$lifeform1_filter, input$lifeform2_filter)))
+      
       convert_lifeform_df(df_filtered, input$lifeform1_filter, input$lifeform2_filter)
     })
     
@@ -229,6 +242,7 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
       req(lifeform_df())
       lifeform_df()
     })
+    
     
     # ------------------------
     # Time sliders for PH1
@@ -262,17 +276,39 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     
     # ------------------------
     # PH1 analysis plot
-    # Only runs if all inputs are set
     # ------------------------
     analysis_data <- reactive({
-      req(lifeform_df(), input$lifeform1_filter, input$lifeform2_filter,
-          input$time_slider_1, input$time_slider_2)
+      req(
+        lifeform_df(),
+        input$lifeform1_filter,
+        input$lifeform2_filter,
+        input$time_slider_1,
+        input$time_slider_2
+      )
+      
+      the_df <- lifeform_df() %>%
+        filter(lifeform %in% c(input$lifeform1_filter, input$lifeform2_filter)) %>%
+        group_by(period) %>%
+        filter(n_distinct(lifeform) == 2) %>%   # Keep only periods with both lifeforms
+        ungroup()
+      
+      # ---- Logging ----
+      log_msg("PH1 INPUT DATAFRAME (to be passed to run_ph1_analysis):")
+      print(the_df, n = Inf)
+      log_msg("PH1 INPUT DATAFRAME STRUCTURE:")
+      str(the_df)
+      log_msg("ref years")
+      print(input$time_slider_1)
+      log_msg("comp_years")
+      print(input$time_slider_2)
+      log_msg("month_thr")
+      print(mon_thr)
       
       run_ph1_analysis(
-        df = lifeform_df() %>% filter(lifeform %in% c(input$lifeform1_filter, input$lifeform2_filter)),
-        ref_years = input$time_slider_1,
+        df         = the_df,  # Pass the exact dataframe
+        ref_years  = input$time_slider_1,
         comp_years = input$time_slider_2,
-        mon_thr = mon_thr
+        mon_thr    = mon_thr
       )
     })
     
@@ -288,6 +324,7 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
       observeEvent(reset_trigger(), {
         rv$selected_ID <- NULL
         rv$dataset_choices <- NULL
+        rv$lifeforms <- all_lifeforms
         updateSelectInput(session, "dataset_name_filter", selected = "All")
         updateSelectInput(session, "lifeform1_filter", selected = "None")
         updateSelectInput(session, "lifeform2_filter", selected = "None")
