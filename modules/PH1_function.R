@@ -17,6 +17,75 @@ library(ggplot2)
 source("modules/Supporting_scripts/PI_functions_v1.R")
 source("modules/Supporting_scripts/Supporting_functions_v2.R")
 
+#' Run PH1 analysis pipeline (Matthew Holland methodology)
+#'
+#' Executes the full PH1 analytical workflow as defined in the Matthew Holland
+#' reference notebook. This function performs data restructuring, temporal
+#' parsing, cleaning, transformation, gap-filling, reference envelope
+#' construction, Pelagic Habitat (PH1) indicator calculation, trend analysis,
+#' and visualization. The function is designed as a complete in-memory
+#' processing pipeline and returns all major outputs required for interpretation
+#' and reporting.
+#'
+#'
+#' @param df A data frame containing the raw monitoring data. Must contain at
+#'   least the following columns:
+#'   \itemize{
+#'     \item \code{period}: Character string of the form \code{"YYYY-MM"}
+#'       representing year and month.
+#'     \item \code{num_samples}: Integer number of samples per time step.
+#'     \item Two or more lifeform columns containing abundance values (numeric,
+#'       floating point). Column names are user-defined and selected using
+#'       \code{lf1} and \code{lf2}.
+#'   }
+#'
+#' @param lf1 Character string giving the column name of the first lifeform
+#'   variable in \code{df}.
+#'
+#' @param lf2 Character string giving the column name of the second lifeform
+#'   variable in \code{df}.
+#'
+#' @param ref_years Integer vector of years defining the reference period
+#'   (e.g., \code{c(2000, 2010)}).
+#'
+#' @param comp_years Integer vector of years defining the comparison period
+#'   (e.g., \code{c(2011, 2020)}).
+#'
+#' @param mon_thr Integer threshold specifying the minimum number of monthly
+#'   observations required per year for data retention. Defaults to 8.
+#'
+#' @return A named list containing the full PH1 analysis outputs:
+#'   \itemize{
+#'     \item \code{env_plots}: Envelope plots for reference and comparison
+#'       periods.
+#'     \item \code{ts_plots}: Time-series plots of lifeform abundance and trend
+#'       fits.
+#'     \item \code{polygon_maps}: Spatial polygon maps corresponding to
+#'       assessment units.
+#'     \item \code{datasets}: A list containing:
+#'       \itemize{
+#'         \item \code{Kendall_results}: Kendall trend test results.
+#'         \item \code{PI_results}: PH1 indicator values.
+#'         \item \code{PI_annual_results}: Annual PH1 indicator values.
+#'         \item \code{Assessment_ids}: Assessment unit identifiers (if more
+#'           than one unit exists).
+#'       }
+#'     \item \code{df_plot}: Processed time-series dataset used for plotting.
+#'     \item \code{envAll}: Computed reference envelope objects.
+#'   }
+#'
+#'
+#' @examples
+#' \dontrun{
+#' results <- run_ph1_analysis(
+#'   df = my_data,
+#'   lf1 = "diatoms",
+#'   lf2 = "dinoflagellates",
+#'   ref_years = c(2000, 2010),
+#'   comp_years = c(2011, 2020),
+#'   mon_thr = 8
+#' )
+#' }
 run_ph1_analysis <- function(df,
                              lf1,
                              lf2,
