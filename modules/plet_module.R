@@ -7,9 +7,12 @@ library(arrow)
 library(dplyr)
 library(tidyr)
 library(purrr)
+library(yaml)
 
 # Source PH1 analysis functions
 source("modules/PH1_function.R")
+
+config <- yaml::read_yaml("config.yml")
 
 log_msg <- function(msg) {
   cat(sprintf("[%s] %s\n", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), msg))

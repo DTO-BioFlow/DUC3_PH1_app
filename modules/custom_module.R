@@ -12,6 +12,7 @@ library(EnvStats)
 library(patchwork)
 library(zoo)
 library(purrr)
+library(yaml)
 
 # -------------------------------------------------------------------------
 # Source analysis & validation functions
@@ -20,6 +21,9 @@ source("modules/PH1_function.R")
 source("modules/test_PH1_data.R")  # provides check_data_PH1()
 source("modules/Supporting_scripts/PI_functions_v1.R")
 source("modules/Supporting_scripts/Supporting_functions_v2.R")
+
+
+config <- yaml::read_yaml("config.yml")
 
 # -------------------------------------------------------------------------
 # UI
@@ -138,7 +142,7 @@ customServer <- function(id, reset_trigger) {
       reset_after_data()
       
       if (input$data_source == "catalog" && !state$catalog_loaded) {
-        url <- "https://raw.githubusercontent.com/DTO-BioFlow/DUC3_dataset_inventory/refs/heads/main/data_catalog/data_catalog_PH1.json"
+        url <- config$PH1_catalog
         state$datasets <- fromJSON(url, simplifyVector = FALSE)
         state$catalog_loaded <- TRUE
         
@@ -171,6 +175,7 @@ customServer <- function(id, reset_trigger) {
       tagList(
         tags$p(tags$strong("Description:"), d$description),
         tags$p(tags$strong("Region:"), d$region),
+        tags$p(tags$strong("Dataset creation:"), d$creation_date),
         tags$p(tags$strong("Lifeforms:"), paste(d$lifeforms, collapse = ", ")),
         tags$p(tags$strong("Data preview:"), tags$a(href = d$sources$data_store, d$sources$data_store)),
         tags$p(tags$strong("Source dataset:"), tags$a(href = d$sources$source_link, d$sources$source_link)),

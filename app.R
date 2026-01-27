@@ -7,7 +7,7 @@ source("modules/custom_module.R")
 
 # ---------- Load config ----------
 config <- yaml::read_yaml("config.yml")
-wfs_url <- config$plet_wfs_url
+wfs_url <- config$wfs_ospar_comp
 
 # ---------- UI ----------
 ui <- navbarPage(
