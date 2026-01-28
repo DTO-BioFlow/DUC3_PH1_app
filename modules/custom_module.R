@@ -79,7 +79,7 @@ customUI <- function(id) {
     hr(),
     
     # Download results
-    downloadButton(ns("download_results"), "Download Analysis Results")
+    uiOutput(ns("download_results_ui"))
   )
 }
 
@@ -324,6 +324,12 @@ customServer <- function(id, reset_trigger) {
     # ---------------------------------------------------------------------
     # DOWNLOAD
     # ---------------------------------------------------------------------
+    output$download_results_ui <- renderUI({
+      req(analysis_data())   # only show once analysis has been computed
+      downloadButton(session$ns("download_results"), "Download Analysis Results")
+    })
+    
+    # Actual download handler stays the same
     output$download_results <- downloadHandler(
       filename = function() "PH1_results.xlsx",
       content = function(file) {

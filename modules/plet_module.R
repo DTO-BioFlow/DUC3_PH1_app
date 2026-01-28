@@ -36,7 +36,8 @@ pletUI <- function(id) {
         uiOutput(ns("plet_info_panel")),
         br(),
         
-        leafletOutput(ns("map"), height = "500px") %>% withSpinner(),
+        uiOutput(ns("map_instructions")),
+        leafletOutput(ns("map"), height = "500px"),
         br(),
         
         uiOutput(ns("dataset_selector")),
@@ -45,7 +46,7 @@ pletUI <- function(id) {
         uiOutput(ns("lifeform_pair_selector")),
         br(),
         
-        tableOutput(ns("lifeform_table")) %>% withSpinner(),
+        tableOutput(ns("lifeform_table")),
         br(),
         
         uiOutput(ns("timesliders_ui")),
@@ -58,7 +59,7 @@ pletUI <- function(id) {
         ),
         br(),
         # Download results
-        downloadButton(ns("download_results"), "Download Analysis Results")
+        uiOutput(ns("download_results_ui"))
       )
     )
   )
@@ -200,6 +201,33 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     # ------------------------
     # Render map + polygons
     # ------------------------
+    output$map_instructions <- renderUI({
+      # Get currently selected polygon
+      selected <- NULL
+      if (!is.null(rv$selected_ID) && !is.null(rv$features)) {
+        selected <- rv$features %>% filter(as.character(ID) == rv$selected_ID)
+      }
+      
+      tagList(
+        tags$p(
+          "Select an ",
+          tags$a(
+            href = "https://odims.ospar.org/en/submissions/ospar_comp_au_2023_01/",
+            target = "_blank",
+            "OSPAR Common Procedure Assessment Unit"
+          ),
+          " from the map below."
+        ),
+        if(!is.null(selected) && nrow(selected) > 0) {
+          tags$p(
+            strong("Selected polygon:"),
+            paste0("ID = ", selected$ID, ", LongName = ", selected$LongName)
+          )
+        } else {
+          tags$p(strong("Selected polygon:"), "None")
+        }
+      )
+    })
     output$map <- renderLeaflet({
       req(rv$features)
       leaflet(rv$features) %>%
@@ -389,6 +417,15 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     width = 1200,   # pixels
     height = 600   # pixels
     )
+    # ---------------------------------------------------------------------
+    # DOWNLOAD
+    # ---------------------------------------------------------------------
+    output$download_results_ui <- renderUI({
+      req(analysis_data())   # only show once analysis has been computed
+      downloadButton(session$ns("download_results"), "Download Analysis Results")
+    })
+    
+    # Actual download handler stays the same
     output$download_results <- downloadHandler(
       filename = function() "PH1_results.xlsx",
       content = function(file) {
