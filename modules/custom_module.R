@@ -12,6 +12,7 @@ library(EnvStats)
 library(patchwork)
 library(zoo)
 library(purrr)
+library(yaml)
 
 # -------------------------------------------------------------------------
 # Source analysis & validation functions
@@ -20,6 +21,9 @@ source("modules/PH1_function.R")
 source("modules/test_PH1_data.R")  # provides check_data_PH1()
 source("modules/Supporting_scripts/PI_functions_v1.R")
 source("modules/Supporting_scripts/Supporting_functions_v2.R")
+
+
+config <- yaml::read_yaml("config.yml")
 
 # -------------------------------------------------------------------------
 # UI
@@ -67,11 +71,15 @@ customUI <- function(id) {
     hr(),
     
     # Analysis plot
-    plotOutput(ns("analysis_plot")),
+    plotOutput(
+      ns("analysis_plot"), 
+      width = "1200",   # or "100%" for full width
+      height = "600px"   # fixed height in px
+    ),
     hr(),
     
     # Download results
-    downloadButton(ns("download_results"), "Download Analysis Results")
+    uiOutput(ns("download_results_ui"))
   )
 }
 
@@ -138,7 +146,7 @@ customServer <- function(id, reset_trigger) {
       reset_after_data()
       
       if (input$data_source == "catalog" && !state$catalog_loaded) {
-        url <- "https://raw.githubusercontent.com/DTO-BioFlow/DUC3_dataset_inventory/refs/heads/main/data_catalog/data_catalog_PH1.json"
+        url <- config$PH1_catalog
         state$datasets <- fromJSON(url, simplifyVector = FALSE)
         state$catalog_loaded <- TRUE
         
@@ -171,6 +179,7 @@ customServer <- function(id, reset_trigger) {
       tagList(
         tags$p(tags$strong("Description:"), d$description),
         tags$p(tags$strong("Region:"), d$region),
+        tags$p(tags$strong("Dataset creation:"), d$creation_date),
         tags$p(tags$strong("Lifeforms:"), paste(d$lifeforms, collapse = ", ")),
         tags$p(tags$strong("Data preview:"), tags$a(href = d$sources$data_store, d$sources$data_store)),
         tags$p(tags$strong("Source dataset:"), tags$a(href = d$sources$source_link, d$sources$source_link)),
@@ -298,12 +307,29 @@ customServer <- function(id, reset_trigger) {
     
     output$analysis_plot <- renderPlot({
       req(analysis_data())
-      print(analysis_data()$env_plots[[1]])
-    })
+      library(patchwork)
+      
+      # Extract actual ggplot objects
+      p_env <- analysis_data()$env_plots[[1]][[1]]
+      p_ts1 <- analysis_data()$ts_plots[[1]][[1]]
+      p_ts2 <- analysis_data()$ts_plots[[2]][[1]]
+      
+      # Combine with patchwork
+      p_env | (p_ts1 / p_ts2)
+    },
+    width = 1200,   # pixels
+    height = 600   # pixels
+    )
     
     # ---------------------------------------------------------------------
     # DOWNLOAD
     # ---------------------------------------------------------------------
+    output$download_results_ui <- renderUI({
+      req(analysis_data())   # only show once analysis has been computed
+      downloadButton(session$ns("download_results"), "Download Analysis Results")
+    })
+    
+    # Actual download handler stays the same
     output$download_results <- downloadHandler(
       filename = function() "PH1_results.xlsx",
       content = function(file) {
