@@ -301,7 +301,8 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
           !!lf2 := weighted.mean(.data[[lf2]], num_samples, na.rm = TRUE),
           num_samples = sum(num_samples, na.rm = TRUE),
           .groups = "drop"
-        )
+        ) %>%
+        filter(num_samples > 0)
     }
     
     lifeform_df <- reactive({
