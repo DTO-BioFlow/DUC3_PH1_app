@@ -71,7 +71,11 @@ customUI <- function(id) {
     hr(),
     
     # Analysis plot
-    plotOutput(ns("analysis_plot")),
+    plotOutput(
+      ns("analysis_plot"), 
+      width = "1200",   # or "100%" for full width
+      height = "600px"   # fixed height in px
+    ),
     hr(),
     
     # Download results
@@ -303,8 +307,19 @@ customServer <- function(id, reset_trigger) {
     
     output$analysis_plot <- renderPlot({
       req(analysis_data())
-      print(analysis_data()$env_plots[[1]])
-    })
+      library(patchwork)
+      
+      # Extract actual ggplot objects
+      p_env <- analysis_data()$env_plots[[1]][[1]]
+      p_ts1 <- analysis_data()$ts_plots[[1]][[1]]
+      p_ts2 <- analysis_data()$ts_plots[[2]][[1]]
+      
+      # Combine with patchwork
+      p_env | (p_ts1 / p_ts2)
+    },
+    width = 1200,   # pixels
+    height = 600   # pixels
+    )
     
     # ---------------------------------------------------------------------
     # DOWNLOAD

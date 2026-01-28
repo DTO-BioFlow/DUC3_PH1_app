@@ -13,12 +13,17 @@ sapply(df, class)
 results <- run_ph1_analysis(
   df = df,
   ref_years  = c(2015, 2018),
-  comp_years = c(2018, 2025),
+  comp_years = c(2019, 2025),
   lf1 = "meroplankton",
   lf2 = "holoplankton",
   mon_thr    = 8
 )
 
 results$datasets$PI_results
-results$env_plots
-results$ts_plots
+results$env_plots[1]
+results$env_plots[2]
+results$ts_plots[1]
+results$ts_plots[2]
+results$df_plot
+
+print(results)
