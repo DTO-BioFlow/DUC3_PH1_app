@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>PH1 Changes in Plankton Communities</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.5/dist/mermaid.min.js"></script>
+    <script>
+    mermaid.initialize({ startOnLoad: true });
+    </script>
+
+</head>
+
+<body>
+<nav class="navbar">
+    <div class="navbar-container">
+        <a href="https://dto-bioflow.eu/" class="navbar-logo">
+            <img src="https://dto-bioflow.eu/themes/custom/skeleton/logo.svg"
+                 alt="DTO-Bioflow logo">
+        </a>
+
+        <ul class="navbar-menu">
+            <li><a href="index.html">Welcome</a></li>
+            <li><a href="about.html">About</a></li>
+            <li><a href="architecture.html">Architecture</a></li>
+            <li><a href="usage.html">How to use</a></li>
+        </ul>
+    </div>
+</nav>
+
+<main class="page-content">
+    <h2>Overview</h2>
+        The applications combines existing pipelines and data sources. Some additional componenets and connections are integrated. <br>
+        PH1 calculations require monthly aggregated plankton lifeform data and are analyses in lifeform pairs.
+
+        <div class="mermaid">
+        flowchart LR
+
+        A[PLET] --> B[Harvest PLET library]
+        B --> C[PLET Export - Stored on EDITO]
+
+        E[OSPAR Regions] --> B
+
+        C --> F[PH1 App - using code from PH1 Rmd]
+        I[Select online dataset] --> F
+        L[any private pipeline] --> G
+        G[Upload custom datasets] --> F
+
+        F --> H[PH1 analytical plots]
+
+        J[EDITO data lake] --> K
+        K[custom export script] --> I
+
+        </div>
+
+    <h2>PLET</h2>
+        <a href= "https://www.dassh.ac.uk/lifeforms/"> Plankton Lifeform Extraction Tool (PLET)</a>
+        is a central repository for lifeform abundances. Users can submit their on-species level data toghether with traits description. 
+        The description is added in the master list:
+        <a href= "https://doi.mba.ac.uk/data/3260/1">Plankton lifeform traits master list</a>, and it is by this masterlist that lifeform classification takes place. 
+        <br>        <br>
+        It is adviced for all <i>dataset managers</i> to contribute their data to PLET. It is a central repository for this information and an important node in the pelagic habiatat assessment.
+        <br>         <br>
+        From a <i>user perspective</i> it handles several functionalities such as the spatial and temporal aggragation of abundances.
+            PLET allows users to manualy perform downloads. There is no API available but there is a basic python endpoint. 
+    <h2>Harvest PLET library</h2>
+    A 
+    <a href="https://harvest-plet.readthedocs.io/en/latest/">Python library</a> build around the PLET endpoint. It offers additional functionality to 
+    request data aggregated according the <a href="https://odims.ospar.org/en/submissions/ospar_comp_au_2023_01/">OSPAR Common Procedure Assessment Units</a>.
+    <ul>
+        <li>Make programmatical request to the PLET database for indivudual datasets. </li>
+        <li>Request all datasets aggregated according the common precedure assessment usnits.</li>
+    </ul>
+    <I>Map of the OSPAR common precedure assessment usnits.</I>
+    <div class="container" style="position: relative; overflow: hidden; width: 75%; padding-top: 75%;"><iframe class="responsive-iframe" style="border:none; position:absolute; top:0; left:0; bottom:0; right:0; width:100%; height:100%;" src="https://odims.ospar.org/en/maps/embed/ospar_comp_au_2023_01_001/"></iframe></div>
+    
+    <h2>Custom pipelines</h2>
+    An example of data extraction from EDITO data lake can be found
+    <a href="https://github.com/DTO-BioFlow/DUC3_dataset_inventory">on GitHub</a>. 
+    <br>
+    This shows:
+    <ul>
+        <li>How to access data on EDITO using R.</li>
+        <li>How to perform a custom monthly lifeform aggregation.</li>
+    </ul>
+
+
+    <h2>PH1 script</h2>
+
+        This is the primary analytical open source tool for PH1 analysis. It is provided as an R markdown script.
+
+        <p>
+        Credits: <br>
+        <i>
+        Holland, M. M., &amp; McQuatters-Gollop, A. (2022).
+        <em>PH1_PLET_tool</em> (Version 2.0) [Computer software].
+        <a href="https://github.com/hollam2/PH1_PLET_tool">
+        https://github.com/hollam2/PH1_PLET_tool
+        </a>
+        </i>
+        </p>
+   
+    <h2>The PH1 - App</h2>
+        This application - see 
+        <a href="usage.html">how to use</a> to find out more. 
+
+</main>
+
+<footer class="footer" role="contentinfo">
+
+    <div class="footer-top">
+        <div class="footer-container">
+
+            <div class="footer-left">
+                <img src="https://dto-bioflow.eu/themes/custom/skeleton/images/flag_funded_eu.svg"
+                     alt="Funded by the European Union">
+            </div>
+            <div>
+                The DTO-Bioflow project is funded by the European Union under the Horizon Europe Programme,
+                <a href="https://cordis.europa.eu/project/id/101112823/results" target="_blank" rel="noopener noreferrer"> Grant Agreement No. 101112823</a>.
+            </div>
+            
+        </div>
+    </div>
+
+    <div class="footer-bottom">
+        <p>© DTO-Bioflow — Funded by the European Union (Horizon Europe)</p>
+    </div>
+
+</footer>
+
+
+</body>
+
+</html>
