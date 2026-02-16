@@ -46,7 +46,23 @@ customUI <- function(id) {
     
     conditionalPanel(
       condition = sprintf("input['%s'] == 'upload'", ns("data_source")),
-      fileInput(ns("file"), "Upload CSV file", accept = ".csv")
+      
+      # Upload CSV input
+      fileInput(ns("file"), "Upload CSV file", accept = ".csv"),
+      
+      # Add your custom text here
+      tags$p(
+        "The csv needs to have this structure:"
+      ),
+      tags$ul(
+        tags$li("`period`: string in YYYY-MM format"),
+        tags$li("`holoplankton`: floating-point number (decimal or scientific notation)"),
+        tags$li("`meroplankton`: floating-point number (decimal or scientific notation)"),
+        tags$li("`num_samples`: integer")
+      ),
+      tags$p(
+        "See online datasets for examples."
+      ),
     ),
     
     conditionalPanel(
