@@ -1,0 +1,17 @@
+# Ignore R history and project files
+*.Rhistory
+*.Rproj
+*.md
+*.git
+
+# Ignore folders not needed in the container
+cache/
+docs/
+tests/
+*.RData
+*.Rhistory
+*.Rproj.user
+.Rproj.user
+*log*
+*cache
+.Rprofile

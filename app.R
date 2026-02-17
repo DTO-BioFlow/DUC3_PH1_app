@@ -15,7 +15,7 @@ ui <- navbarPage(
   id = "tabs",
   
   tabPanel(
-    "Welcome",
+    "Info",
     value = "Start",
     tags$iframe(
       src = "https://dto-bioflow.github.io/DUC3_PH1_app/",
