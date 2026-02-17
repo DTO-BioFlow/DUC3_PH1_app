@@ -7,6 +7,8 @@
 
 ## About the software
 PH1/FW: Changes in phytoplankton and zooplankton communities
+
+<br>
 See [GitHub Pages website](https://dto-bioflow.github.io/DUC3_PH23_MVP/).
 
 ## Install
@@ -14,6 +16,8 @@ Install dependencies
 ```dependencies```
 
 Run ```app.R``` to launch the Rshiny app.
+
+Also available on dockerhub: [https://hub.docker.com/r/willemboone/ph1-rshiny](https://hub.docker.com/r/willemboone/ph1-rshiny)
 
 ## Credits
 
