@@ -30,8 +30,8 @@
 
 <main class="page-content">
     <h2>Overview</h2>
-        This application combines existing pipelines and data sources. Some additional componenets and connections are integrated. <br>
-        PH1 calculations require monthly aggregated plankton lifeform data and are analyses in lifeform pairs.
+        This application combines existing pipelines and data sources. Some additional components and connections are integrated. <br>
+        PH1 calculations require monthly aggregated plankton lifeform data and are analysed in lifeform pairs.
 
         <div class="mermaid">
         flowchart LR
@@ -54,40 +54,42 @@
         </div>
 
     <h2>PLET</h2>
-        <a href= "https://www.dassh.ac.uk/lifeforms/"> Plankton Lifeform Extraction Tool (PLET)</a>
-        is a central repository for lifeform abundances. Users can submit their on-species level data toghether with traits description. 
-        The description is added in the master list:
-        <a href= "https://doi.mba.ac.uk/data/3260/1">Plankton lifeform traits master list</a>, and it is by this masterlist that lifeform classification takes place. 
-        <br>        <br>
-        It is adviced for all <i>dataset managers</i> to contribute their data to PLET. It is a central repository for this information and an important node in the pelagic habiatat assessment.
-        <br>         <br>
-        From a <i>user perspective</i> it handles several functionalities such as the spatial and temporal aggragation of abundances.
-            PLET allows users to manualy perform downloads. There is no API available but there is a basic python endpoint. 
+        <a href="https://www.dassh.ac.uk/lifeforms/"> Plankton Lifeform Extraction Tool (PLET)</a>
+        is a central repository for lifeform abundances. Users can submit their species-level data together with trait descriptions. 
+        The description is added to the master list:
+        <a href="https://doi.mba.ac.uk/data/3260/1">Plankton lifeform traits master list</a>, and lifeform classification is based on this master list. 
+        <br><br>
+        It is advised that all <i>dataset managers</i> contribute their data to PLET. It is a central repository for this information and an important node in pelagic habitat assessment.
+        <br><br>
+        From a <i>user perspective</i>, it provides several functionalities such as spatial and temporal aggregation of abundances.
+        PLET allows users to manually download data. There is no API available, but there is a basic Python endpoint. 
+
     <h2>Harvest PLET library</h2>
     A 
-    <a href="https://harvest-plet.readthedocs.io/en/latest/">Python library</a> build around the PLET endpoint. It offers additional functionality to 
-    request data aggregated according the <a href="https://odims.ospar.org/en/submissions/ospar_comp_au_2023_01/">OSPAR Common Procedure Assessment Units</a>.
+    <a href="https://harvest-plet.readthedocs.io/en/latest/">Python library</a> built around the PLET endpoint. It offers additional functionality to 
+    request data aggregated according to the <a href="https://odims.ospar.org/en/submissions/ospar_comp_au_2023_01/">OSPAR Common Procedure Assessment Units</a>.
     <ul>
-        <li>Make programmatical request to the PLET database for indivudual datasets. </li>
-        <li>Request all datasets aggregated according the common precedure assessment usnits.</li>
+        <li>Make programmatic requests to the PLET database for individual datasets.</li>
+        <li>Request all datasets aggregated according to the Common Procedure Assessment Units.</li>
     </ul>
-    <I>Map of the OSPAR common precedure assessment usnits.</I>
-    <div class="container" style="position: relative; overflow: hidden; width: 75%; padding-top: 75%;"><iframe class="responsive-iframe" style="border:none; position:absolute; top:0; left:0; bottom:0; right:0; width:100%; height:100%;" src="https://odims.ospar.org/en/maps/embed/ospar_comp_au_2023_01_001/"></iframe></div>
+    <i>Map of the OSPAR Common Procedure Assessment Units.</i>
+    <div class="container" style="position: relative; overflow: hidden; width: 75%; padding-top: 75%;">
+        <iframe class="responsive-iframe" style="border:none; position:absolute; top:0; left:0; bottom:0; right:0; width:100%; height:100%;" src="https://odims.ospar.org/en/maps/embed/ospar_comp_au_2023_01_001/"></iframe>
+    </div>
     
     <h2>Custom pipelines</h2>
-    An example of data extraction from EDITO data lake can be found
+    An example of data extraction from the EDITO data lake can be found
     <a href="https://github.com/DTO-BioFlow/DUC3_dataset_inventory">on GitHub</a>. 
     <br>
     This shows:
     <ul>
         <li>How to access data on EDITO using R.</li>
-        <li>How to perform a custom monthly lifeform aggregation.</li>
+        <li>How to perform custom monthly lifeform aggregation.</li>
     </ul>
-
 
     <h2>PH1 script</h2>
 
-        This is the primary analytical open source tool for PH1 analysis. It is provided as an R markdown script.
+        This is the primary open-source analytical tool for PH1 analysis. It is provided as an R Markdown script.
 
         <p>
         Credits: <br>
@@ -100,9 +102,8 @@
         </i>
         </p>
    
-    <h2>The PH1 - App</h2>
-        This application - see 
-        <a href="usage.html">how to use</a> to find out more. 
+    <h2>The PH1 App</h2>
+        See the <a href="usage.html">How to use</a> page to find out more about this application. 
 
 </main>
 
@@ -128,7 +129,6 @@
     </div>
 
 </footer>
-
 
 </body>
 
