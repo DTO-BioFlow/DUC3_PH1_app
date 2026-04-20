@@ -18,7 +18,7 @@ git:
   name: willem.boone
   email: willem.boone@vliz.be
   cache: "0"
-  token: 4nVzfua4d7o7r8wnyk2k
+  token: 
   repository: ""
   branch: ""
 serviceInputs: []
