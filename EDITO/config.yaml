@@ -1,0 +1,42 @@
+configuration:
+  gpu:
+    enabled: false
+  containerImage:
+    imageIsBuilt: true
+    tag: docker.io/willemboone/ph1-rshiny:latest
+    path: ""
+  network:
+    port: 3838
+metadata:
+  id: dto-bioflow-pelagic-habitat-1
+  version: 1.0.0
+  description: Pelagic habitat indicator 1 (PH1) - Changes in phytoplankton and
+    zooplankton communities
+  icon: https://dto-bioflow.eu/sites/default/files/2025-05/Logo%20DTO-Bioflow%20Positive%20small.png
+  home: https://dto-bioflow.github.io/DUC3_PH1_app/index.html
+  keywords:
+    - keyword: DTO-BIOFLOW
+  appVersion: ""
+git:
+  enabled: true
+  name: willem.boone
+  email: willem.boone@vliz.be
+  cache: "0"
+  token: 4nVzfua4d7o7r8wnyk2k
+  repository: ""
+  branch: ""
+serviceInputs: []
+resources:
+  requests:
+    cpu: 100m
+    memory: 1Gi
+  limits:
+    cpu: 1000m
+    memory: 4Gi
+resources_needed_by_your_service:
+  minimum_needs:
+    cpu: 100
+    memory: 1
+  maximum_needs:
+    cpu: 7200
+    memory: 28
