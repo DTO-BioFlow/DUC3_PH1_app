@@ -1,12 +1,15 @@
-# Use current Shiny image (Ubuntu 24.04 base)
-FROM rocker/shiny:4.5
+# Use the Rocker Shiny image
+FROM rocker/shiny:4.3
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies
+# Install system dependencies required by R packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gfortran \
+    cmake \
+    curl \
+    gdal-bin \
     libcurl4-openssl-dev \
     libssl-dev \
     libxml2-dev \
@@ -25,21 +28,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set working directory
 WORKDIR /srv/shiny-server
 
-# Install renv first (separate layer for caching)
+# Install renv
 RUN R -e "install.packages('renv', repos='https://cloud.r-project.org')"
 
-# Copy renv files first (so package restore is cached unless lockfile changes)
-COPY renv.lock renv.lock
-COPY renv/ renv/
+# Copy the lockfile first to improve Docker layer caching
+COPY renv.lock ./renv.lock
 
-# Restore packages
-RUN R -e "renv::restore(lockfile='renv.lock', prompt=FALSE, clean=TRUE)"
+# Restore the R environment from the lockfile
+RUN R -e "renv::restore(lockfile='/srv/shiny-server/renv.lock', prompt=FALSE)"
 
-# Copy entire app AFTER packages are restored
+# Copy the Shiny application after restoring packages
 COPY . .
 
-# Expose port
+# Expose Shiny port
 EXPOSE 3838
 
-# Run Shiny
+# Start the Shiny application
 CMD ["R", "-e", "shiny::runApp('/srv/shiny-server', host='0.0.0.0', port=3838)"]

@@ -170,8 +170,8 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
       rv$min_year <- NULL
       rv$max_year <- NULL
       
-      updateSelectInput(session, "dataset_name_filter", selected = "All")
-      updateSelectInput(session, "lifeform_pair", selected = "None selected")
+      updateSelectInput(session, "dataset_name_filter", choices = character(0), selected = character(0))
+      updateSelectInput(session, "lifeform_pair", choices = character(0), selected = character(0))
     }
     
     observeEvent(input$plet_file, {
@@ -231,7 +231,7 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     output$map <- renderLeaflet({
       req(rv$features)
       leaflet(rv$features) %>%
-        addProviderTiles("CartoDB.Positron") %>%
+        addProviderTiles("Esri.WorldGrayCanvas") %>%
         addPolygons(
           layerId = ~as.character(ID),
           color = "blue",
@@ -265,18 +265,32 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
         )
       
       filtered_region <- rv$assessment %>% filter(region_id == rv$selected_ID)
-      rv$dataset_choices <- c("All", unique(filtered_region$dataset_name))
-      
-      years <- as.integer(substr(filtered_region$period, 1, 4))
-      rv$min_year <- min(years, na.rm = TRUE)
-      rv$max_year <- max(years, na.rm = TRUE)
+      dataset_names <- unique(filtered_region$dataset_name)
+      dataset_names <- dataset_names[!is.na(dataset_names)]
+      rv$dataset_choices <- if (nrow(filtered_region) > 0) {
+        c("All", dataset_names)
+      } else {
+        character(0)
+      }
+
+      if (nrow(filtered_region) > 0) {
+        years <- as.integer(substr(filtered_region$period, 1, 4))
+        rv$min_year <- min(years, na.rm = TRUE)
+        rv$max_year <- max(years, na.rm = TRUE)
+      }
     })
     
     # ------------------------
     # Dataset selector
     # ------------------------
     output$dataset_selector <- renderUI({
-      req(rv$dataset_choices)
+      if (is.null(rv$dataset_choices)) return(NULL)
+      if (length(rv$dataset_choices) == 0) {
+        return(tagList(
+          selectInput(ns("dataset_name_filter"), "Select dataset:", choices = character(0)),
+          tags$p("no data available", style = "color: #b22222;")
+        ))
+      }
       selectInput(ns("dataset_name_filter"), "Select dataset:", choices = rv$dataset_choices, selected = "All")
     })
     
@@ -295,7 +309,10 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     )
     
     valid_lifeform_pairs <- reactive({
-      req(rv$assessment, rv$selected_ID, input$dataset_name_filter)
+      if (is.null(rv$assessment) || is.null(rv$selected_ID) ||
+          is.null(input$dataset_name_filter)) {
+        return(list())
+      }
       df <- rv$assessment %>% filter(region_id == rv$selected_ID)
       if(input$dataset_name_filter != "All") df <- df %>% filter(dataset_name == input$dataset_name_filter)
       
@@ -306,26 +323,44 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     })
     
     output$lifeform_pair_selector <- renderUI({
-      req(valid_lifeform_pairs())
+      pairs <- valid_lifeform_pairs()
+      if (is.null(pairs) || length(pairs) == 0) {
+        return(tagList(
+          selectInput(ns("lifeform_pair"), "Select Lifeform Pair:", choices = character(0)),
+          tags$p("no data available", style = "color: #b22222;")
+        ))
+      }
       selectInput(
         ns("lifeform_pair"),
         "Select Lifeform Pair:",
-        choices = c("None selected", names(valid_lifeform_pairs())),
+        choices = c("None selected", names(pairs)),
         selected = "None selected"
       )
     })
     
     lf1 <- reactive({
-      if(input$lifeform_pair == "None selected") return(NULL)
-      valid_lifeform_pairs()[[input$lifeform_pair]][1]
+      if(is.null(input$lifeform_pair) || input$lifeform_pair == "None selected") return(NULL)
+      pairs <- valid_lifeform_pairs()
+      if (!input$lifeform_pair %in% names(pairs)) return(NULL)
+      pairs[[input$lifeform_pair]][1]
     })
     
     lf2 <- reactive({
-      if(input$lifeform_pair == "None selected") return(NULL)
-      valid_lifeform_pairs()[[input$lifeform_pair]][2]
+      if(is.null(input$lifeform_pair) || input$lifeform_pair == "None selected") return(NULL)
+      pairs <- valid_lifeform_pairs()
+      if (!input$lifeform_pair %in% names(pairs)) return(NULL)
+      pairs[[input$lifeform_pair]][2]
     })
     
     convert_lifeform_df <- function(df, lf1, lf2){
+      if (nrow(df) == 0) {
+        return(tibble::tibble(
+          period = character(),
+          !!lf1 := numeric(),
+          !!lf2 := numeric(),
+          num_samples = numeric()
+        ))
+      }
       df %>%
         mutate(period = as.character(period)) %>%
         filter(grepl("^\\d{4}-\\d{2}$", period)) %>%
@@ -341,9 +376,14 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     }
     
     lifeform_df <- reactive({
-      req(rv$assessment, rv$selected_ID, lf1(), lf2())
+      if (is.null(rv$assessment) || is.null(rv$selected_ID) ||
+          is.null(lf1()) || is.null(lf2())) {
+        return(NULL)
+      }
       df <- rv$assessment %>% filter(region_id == rv$selected_ID)
-      if(input$dataset_name_filter != "All") df <- df %>% filter(dataset_name == input$dataset_name_filter)
+      if(!is.null(input$dataset_name_filter) && input$dataset_name_filter != "All") {
+        df <- df %>% filter(dataset_name == input$dataset_name_filter)
+      }
       df <- df %>% select(period, numSamples, all_of(c(lf1(), lf2())))
       convert_lifeform_df(df, lf1(), lf2())
     })
@@ -352,7 +392,7 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     # Table + CSV
     # ------------------------
     output$lifeform_table <- renderUI({
-      req(lifeform_df())
+      if (is.null(lifeform_df()) || nrow(lifeform_df()) == 0) return(NULL)
       tagList(
         tags$p(strong(paste("Total records:", nrow(lifeform_df())))),
         tags$div(style="max-height:400px; overflow-y:auto;", tableOutput(ns("lifeform_table_inner"))),
@@ -373,8 +413,9 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     # Time sliders
     # ------------------------
     output$timesliders_ui <- renderUI({
-      req(lifeform_df())
-      years <- as.integer(substr(lifeform_df()$period, 1, 4))
+      df <- lifeform_df()
+      if (is.null(df) || nrow(df) == 0) return(NULL)
+      years <- as.integer(substr(df$period, 1, 4))
       min_year <- min(years, na.rm=TRUE)
       max_year <- max(years, na.rm=TRUE)
       mid <- floor((min_year + max_year)/2)
@@ -391,28 +432,54 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     # PH1 analysis
     # ------------------------
     analysis_data <- reactive({
-      req(lifeform_df(), lf1(), lf2(), input$time_slider_1, input$time_slider_2)
-      run_ph1_analysis(
-        df = lifeform_df(),
-        lf1 = lf1(),
-        lf2 = lf2(),
-        ref_years = input$time_slider_1,
-        comp_years = input$time_slider_2,
-        mon_thr = mon_thr
+      df <- lifeform_df()
+      if (is.null(df) || nrow(df) == 0 ||
+          is.null(lf1()) || is.null(lf2()) ||
+          is.null(input$time_slider_1) || is.null(input$time_slider_2)) {
+        return(NULL)
+      }
+
+      tryCatch(
+        list(
+          success = TRUE,
+          data = run_ph1_analysis(
+            df = df,
+            lf1 = lf1(),
+            lf2 = lf2(),
+            ref_years = input$time_slider_1,
+            comp_years = input$time_slider_2,
+            mon_thr = mon_thr
+          )
+        ),
+        error = function(e) {
+          log_msg(paste("PH1 analysis failed:", e$message))
+          list(success = FALSE, message = "not enough data to perform PH1 analysis.")
+        }
       )
     })
     
     output$analysis_plot <- renderPlot({
-      req(analysis_data())
-      library(patchwork)
-      
-      # Extract actual ggplot objects
-      p_env <- analysis_data()$env_plots[[1]][[1]]
-      p_ts1 <- analysis_data()$ts_plots[[1]][[1]]
-      p_ts2 <- analysis_data()$ts_plots[[2]][[1]]
-      
-      # Combine with patchwork
-      p_env | (p_ts1 / p_ts2)
+      result <- analysis_data()
+      if (is.null(result) || !isTRUE(result$success)) {
+        plot.new()
+        message <- if (is.null(result)) "" else result$message
+        text(0.5, 0.5, message, col = "#b22222", cex = 1.2)
+        return()
+      }
+      tryCatch({
+        library(patchwork)
+
+        p_env <- result$data$env_plots[[1]][[1]]
+        p_ts1 <- result$data$ts_plots[[1]][[1]]
+        p_ts2 <- result$data$ts_plots[[2]][[1]]
+
+        p_env | (p_ts1 / p_ts2)
+      }, error = function(e) {
+        log_msg(paste("PH1 plot failed:", e$message))
+        plot.new()
+        text(0.5, 0.5, "not enough data to perform PH1 analysis.",
+             col = "#b22222", cex = 1.2)
+      })
     },
     width = 1200,   # pixels
     height = 600   # pixels
@@ -421,7 +488,8 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     # DOWNLOAD
     # ---------------------------------------------------------------------
     output$download_results_ui <- renderUI({
-      req(analysis_data())   # only show once analysis has been computed
+      result <- analysis_data()
+      if (is.null(result) || !isTRUE(result$success)) return(NULL)
       downloadButton(session$ns("download_results"), "Download Analysis Results")
     })
     
@@ -429,10 +497,9 @@ pletServer <- function(id, reset_trigger = NULL, wfs_url = NULL) {
     output$download_results <- downloadHandler(
       filename = function() "PH1_results.xlsx",
       content = function(file) {
-        openxlsx::write.xlsx(analysis_data()$datasets, file)
+        openxlsx::write.xlsx(analysis_data()$data$datasets, file)
       }
     )
     
   })
 }
-

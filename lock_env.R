@@ -36,6 +36,12 @@ deps <- do.call(rbind, deps_list)
 deps <- deps[!deps$Package %in% c("R", "base", "stats", "utils", "methods", "graphics", "grDevices"), ]
 pkgs_to_snapshot <- unique(deps$Package)
 
+# terra 1.8-29 requires an Rcpp version that supports its eight-argument
+# Rcpp module constructors. Install the compatible version before snapshotting
+# so the generated lockfile does not retain an older local Rcpp installation.
+renv::install("Rcpp@1.1.0")
+pkgs_to_snapshot <- union(pkgs_to_snapshot, "Rcpp")
+
 message("Packages to snapshot:")
 print(pkgs_to_snapshot)
 
